@@ -2,6 +2,8 @@
    --- GLOBAL VARIABLES ---
 ============================================================================ */
 :root {
+  --page-gutter: clamp(16px, 5vw, 32px);
+
   /* Colors */
   --color-white: #fff;
   --color-black: #000;
@@ -23,7 +25,7 @@
   --scrollbar-width: 5px;
 
   /* Margins */
-  --main-margin: 80px;
+  --main-margin: 40px;
 
   /* Borders */
   --border-width: 1px;
@@ -41,23 +43,29 @@
    --- GLOBAL STYLES ---
 ============================================================================ */
 html {
-  height: 100%;
   align-items: center;
   font-size: 100%;
 }
 
 body {
+  min-height: calc(100dvh - var(--spacing-base));
   font-family: var(--font-main);
   font-size: 1rem;
   background-color: var(--color-white);
   color: var(--color-black);
-  margin: var(--main-margin);
+  margin-right: var(--main-margin);
+  margin-left: var(--main-margin);
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#historyContainer,
+.main-content {
+  padding-inline: var(--page-gutter);
 }
 
 /* ============================================================================
@@ -70,6 +78,8 @@ body {
   gap: calc(var(--spacing-base) * 2);
   width: 100%;
   max-width: 1200px;
+  padding-left: max(var(--page-gutter), env(safe-area-inset-left));
+  padding-right: max(var(--page-gutter), env(safe-area-inset-right));
 }
 
 .main-content {
@@ -101,7 +111,6 @@ body {
 .headline {
   text-align: center;
   font-weight: var(--font-weight-regular);
-  margin-top: 0;
   margin-bottom: calc(var(--spacing-base));
 }
 
@@ -173,7 +182,6 @@ body {
 ============================================================================ */
 .submission-area {
   display: flex;
-  width: var(--content-width);
   max-width: 100%;
 }
 
@@ -296,6 +304,21 @@ body {
 .history-row{
   display:flex;gap:.75rem;
   align-items:flex-start;
+}
+
+/* ============================================================================
+   --- FEEDBACK MESSAGE ---
+============================================================================ */
+.feedback-message {
+  display: none;
+  color: var(--color-error);
+  overflow: hidden;
+  transition: max-height 0.25s ease, margin-top 0.25s ease, opacity 0.2s ease;
+}
+
+.feedback-message.visible {
+  display: block;
+  opacity: 1;
 }
 
 /* =====================================================================
@@ -450,22 +473,7 @@ body {
   border: none;
 }
 
-/* ============================================================================
-   --- FEEDBACK MESSAGE ---
-============================================================================ */
-.feedback-message {
-  color: var(--color-error);
-  font-style: italic;
-  height: 1.5rem;
-  margin-top: calc(var(--spacing-base) / 2);
-  text-align: center;
-  opacity: 0;
-  transition: var(--transition-medium);
-}
 
-.feedback-message.visible {
-  opacity: 1;
-}
 
 /* ============================================================================
    --- SCROLLBARS ---
@@ -494,7 +502,6 @@ body {
 ============================================================================ */
 .site-footer {
   margin-top: auto;
-  margin-bottom: var(--spacing-base);
   text-align: center;
   font-size: 0.9rem;
   width: 80%;
