@@ -35,9 +35,14 @@ const io = new Server(server, {
   pingInterval: 25000,
   pingTimeout: 20000,
   maxHttpBufferSize: 10_000,
-  cors: { origin: CORS_ORIGIN, methods: ['GET'] }
+  cors: {
+    // In dev, defaults to localhost. In prod, set CORS_ORIGIN to your live URL.
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    methods: ['GET'],
+  },
 });
 
+// Use the platform-assigned port in prod (Render/Heroku/Railway/etc.)
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // ============================================================================
@@ -456,8 +461,7 @@ async function runBotSubmission() {
     notStartingLikePrev(s);
 
   //========================================
-  // 5) GENERATE + RETRY + FALLBACK
-  //  - Single try, then a strict retry, then a safe fallback sentence.
+  // 5) GENERATE + RETRY + FALLBACK (with timeout + anti-repeat guards)
   //========================================
   const withTimeout = (p, ms = 7000) =>
     Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
@@ -465,20 +469,32 @@ async function runBotSubmission() {
   async function generateOnce(prompt) {
     const result = await withTimeout(model.generateContent(prompt));
     const raw = (result?.response?.text() || "").trim();
+    // keep only the first sentence
     return (raw.match(/^[^.!?]*[.!?]/) || [raw])[0].trim();
   }
+
+  // quick heuristics to detect loops/repeats
+  const looksLooped = (s) => /\b(\w+)\b(?:\s+\1){2,}/i.test(s); // "glass glass glass"
+  const tooSimilarToLast = (s) => {
+    const ns = normalizeSentence(s);
+    const lastSig   = globalThis.__lastBotSentenceSig   || '';
+    const lastStart = (globalThis.__lastBotSentenceStart || '').trim();
+    return ns === lastSig || (lastStart && ns.startsWith(lastStart + ' '));
+  };
 
   let sentence = '';
   try {
     sentence = await generateOnce(buildPrompt());
-    if (!validSentence(sentence)) {
-      const note = `Your last output violated the rules. Fix it now and obey ALL rules strictly.`;
+    if (!validSentence(sentence) || looksLooped(sentence) || tooSimilarToLast(sentence)) {
+      const note = 'Avoid repeating previous sentences or phrases. Vary vocabulary and structure.';
       sentence = await generateOnce(buildPrompt(note));
     }
   } catch (e) {
     console.warn('[bot] model error:', e?.message || e);
   }
-  if (!validSentence(sentence)) {
+
+  // Fallback: safe Markov (make sure your Markov generator avoids self-loops)
+  if (!validSentence(sentence) || looksLooped(sentence) || tooSimilarToLast(sentence)) {
     const len = 8 + ((Math.random() * 5) | 0);
     sentence = generateMarkovSentence(len);
   }
@@ -488,6 +504,7 @@ async function runBotSubmission() {
   const firstTwo = sig.split(' ').slice(0, 2).join(' ');
   globalThis.__lastBotSentenceSig = sig;
   globalThis.__lastBotSentenceStart = firstTwo;
+
   botQueue = sentence.trim().split(/\s+/);
   botPlannedToken = botQueue[0] || null;
 
@@ -579,18 +596,45 @@ function generateMarkovSentence(maxTokens = 10){
   const last = currentText.length ? currentText[currentText.length - 1].word : '';
   const model = buildMarkovModel(botContext);
   const tokens = [];
-  const PUNC_ONLY = /^[.,!?;:…]$/u;
+  const seen = new Set();
+  const toLower = s => String(s || '').toLowerCase();
 
-  let head = (String(last || '').toLowerCase()) || pickSeed().toLowerCase();
-  for (let i=0; i<maxTokens; i++){
-    const nxt = markovNext(model, head);
-    if (!nxt) break;
-    tokens.push(nxt);
-    if (PUNC_ONLY.test(nxt)) break;
-    head = nxt;
+  let head = toLower(last) || toLower(pickSeed());
+
+  for (let i = 0; i < maxTokens; i++){
+    const m = model.get(head);
+    let candidate = null, bestC = 0;
+
+    // choose the best follower that is NOT the same as head and not already used
+    if (m && m.size){
+      for (const [w,c] of m){
+        if (w === head) continue;        // no self-loop A -> A
+        if (seen.has(w)) continue;       // no repeats within one sentence
+        if (c > bestC){ candidate = w; bestC = c; }
+      }
+    }
+
+    if (!candidate) break;
+    tokens.push(candidate);
+    seen.add(candidate);
+    head = toLower(candidate);
   }
-  // if we got nothing, return a single seed; else join
+
+  // pad to a minimum length with unique safe seeds
+  if (tokens.length < 4){
+    const seeds = (constants && constants.BOT_SEEDS)
+      ? constants.BOT_SEEDS
+      : ["echo","neon","murmur","flux","orbit","paper","glass","river","quiet","amber","stone","cloud","pulse","still","north","velvet"];
+    for (const s of seeds){
+      const w = toLower(s);
+      if (!seen.has(w)) { tokens.push(w); seen.add(w); }
+      if (tokens.length >= 4) break;
+    }
+  }
+
+  // ensure the last token carries punctuation (no separate "." token)
   if (tokens.length === 0) return pickSeed();
+  tokens[tokens.length - 1] = tokens[tokens.length - 1] + '.';
   return tokens.join(' ');
 }
 
@@ -832,7 +876,7 @@ const apiLimiter = rateLimit({
 app.use(['/config', '/api', '/history'], apiLimiter);
 
 // Static files
-app.use(express.static('public'));
+app.use(express.static(require('path').join(__dirname, 'public')));
 
 // Health checks (for uptime monitors / load balancers)
 app.get('/healthz', (_req, res) => res.type('text').send('ok'));
