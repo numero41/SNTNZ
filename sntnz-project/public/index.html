@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>snTnz</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;200;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <main class="container">
+    <div class="main-content">
+
+      <!-- =========================================================
+           TITLE + HEADLINE
+      ========================================================== -->
+      <section class="header-section">
+        <h1 class="site-title">snTnz</h1>
+        <h2 class="headline">Write the history together.</h2>
+      </section>
+
+      <!-- =====================================================================
+            NAV ARROWS (UP / CURRENT / DOWN / FULL HISTORY)
+      ===================================================================== -->
+      <div id="historyNav" class="history-nav">
+        <button id="btnScrollUp" class="nav-arrow" aria-label="Scroll up">△</button>
+        <button id="btnScrollDown" class="nav-arrow" aria-label="Scroll down">▽</button>
+        <button id="btnScrollCurrent" class="nav-arrow nav-current" aria-label="Jump to current">▽</button>
+        <button id="btnOpenHistory"  class="nav-arrow" aria-label="Open full history">☰</button>
+      </div>
+
+      <!-- =========================================================
+           CURRENT TEXT DISPLAY
+      ========================================================== -->
+      <section class="current-text-section">
+        <div id="currentTextWrapper" class="text-wrapper">
+            <div id="currentTextContainer" class="current-text scrollable"></div>
+        </div>
+      </section>
+
+      <!-- =========================================================
+           WORD SUBMISSION FORM + TIMER
+      ========================================================== -->
+      <section class="submission-section">
+        <form id="wordForm" class="submission-area">
+          <input id="wordInput" autocomplete="off" maxlength="40" placeholder="suggest the next word" />
+          <button type="submit" id="submitButton">
+            <span id="timer">60</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- =========================================================
+           STYLE OPTIONS (B/I/U)
+      ========================================================== -->
+      <section class="style-options-section">
+        <div id="styleOptions" class="style-options">
+          <button class="style-btn" data-style="bold">B</button>
+          <button class="style-btn" data-style="italic">I</button>
+          <button class="style-btn" data-style="underline">U</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- =========================================================
+         FEEDBACK MESSAGE
+    ========================================================== -->
+    <div id="feedbackMessage" class="feedback-message"></div>
+
+    <!-- =========================================================
+         LIVE FEED SIDEBAR
+    ========================================================== -->
+    <aside class="sidebar">
+      <ul id="liveFeedList"></ul>
+    </aside>
+  </main>
+
+  <!-- =========================================================
+       FOOTER
+  ========================================================== -->
+  <footer class="site-footer">
+    <p>&copy; 2025 snTnz. All rights reserved.</p>
+  </footer>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

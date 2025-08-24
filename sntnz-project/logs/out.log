@@ -1,0 +1,4 @@
+[dotenv@17.2.1] injecting env (1) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[history] Loading initial text from archive...
+[history] Successfully loaded 500 words.
+snTnz server is running at http://localhost:3000
