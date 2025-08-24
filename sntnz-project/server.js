@@ -411,7 +411,7 @@ async function runBotSubmission() {
       ${violationNote}
 
       Hard rules (all must be met):
-      1) Length: 4–50 words total.
+      1) Length: 4–${constants.BOT_SENTENCE_MAX_WORDS} words total.
       2) Include at least one concrete noun and one verb.
       3) Do NOT use any of these words in ANY form: ${banListForPrompt}
       4) Try to NOT repeat any word within this sentence, and try to avoid repeating words from the previous text.
@@ -454,52 +454,61 @@ async function runBotSubmission() {
   };
   const validSentence = s =>
     wordCount(s) >= 4 &&
-    wordCount(s) <= 10 &&
+    wordCount(s) <= constants.BOT_SENTENCE_MAX_WORDS &&
     endsPunct(s) &&
     noRepeats(s) &&
     notSameAsPrev(s) &&
     notStartingLikePrev(s);
 
   //========================================
-  // 5) GENERATE + RETRY + FALLBACK (with timeout + anti-repeat guards)
+  // 5) GENERATE + RETRY + FALLBACK (tolerant repeat-guard + longer timeout)
   //========================================
-  const withTimeout = (p, ms = 7000) =>
+  const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 12000);
+
+  const withTimeout = (p, ms = AI_TIMEOUT_MS) =>
     Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
   async function generateOnce(prompt) {
     const result = await withTimeout(model.generateContent(prompt));
     const raw = (result?.response?.text() || "").trim();
-    // keep only the first sentence
+    // keep only the first sentence so we don't overflow token rules
     return (raw.match(/^[^.!?]*[.!?]/) || [raw])[0].trim();
   }
 
-  // quick heuristics to detect loops/repeats
+  // simple repeat/loop checks
   const looksLooped = (s) => /\b(\w+)\b(?:\s+\1){2,}/i.test(s); // "glass glass glass"
-  const tooSimilarToLast = (s) => {
+  function tooSimilarToLast(s) {
     const ns = normalizeSentence(s);
-    const lastSig   = globalThis.__lastBotSentenceSig   || '';
+    const lastSig = globalThis.__lastBotSentenceSig || '';
     const lastStart = (globalThis.__lastBotSentenceStart || '').trim();
-    return ns === lastSig || (lastStart && ns.startsWith(lastStart + ' '));
-  };
+    const sameSig = ns === lastSig;
+    const sameStart = lastStart && ns.startsWith(lastStart + ' ');
+    // allow ONE repeat before rejecting (reduces false positives)
+    const prevStreak = globalThis.__repeatStreak || 0;
+    const reject = (sameSig || sameStart) && prevStreak >= 1;
+    globalThis.__repeatStreak = (sameSig || sameStart) ? prevStreak + 1 : 0;
+    return reject;
+  }
 
   let sentence = '';
   try {
     sentence = await generateOnce(buildPrompt());
     if (!validSentence(sentence) || looksLooped(sentence) || tooSimilarToLast(sentence)) {
-      const note = 'Avoid repeating previous sentences or phrases. Vary vocabulary and structure.';
+      const note = 'Avoid repeating earlier sentences; vary vocabulary and structure.';
       sentence = await generateOnce(buildPrompt(note));
     }
   } catch (e) {
-    console.warn('[bot] model error:', e?.message || e);
+    console.warn('[bot] model error (AI):', e?.message || e);
   }
+  console.log('[bot] Generated sentence:', sentence || '(none)');
 
-  // Fallback: safe Markov (make sure your Markov generator avoids self-loops)
   if (!validSentence(sentence) || looksLooped(sentence) || tooSimilarToLast(sentence)) {
     const len = 8 + ((Math.random() * 5) | 0);
+    console.log('[bot] Generated sentence has been rejected; falling back to Markov.');
     sentence = generateMarkovSentence(len);
   }
 
-  // Persist “anti-repeat” signatures for the NEXT call
+  // Persist signatures for the NEXT call
   const sig = normalizeSentence(sentence);
   const firstTwo = sig.split(' ').slice(0, 2).join(' ');
   globalThis.__lastBotSentenceSig = sig;
@@ -507,6 +516,7 @@ async function runBotSubmission() {
 
   botQueue = sentence.trim().split(/\s+/);
   botPlannedToken = botQueue[0] || null;
+
 
   //========================================
   // 6) SUBMIT NOW: take the first token of the planned sentence

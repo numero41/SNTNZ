@@ -9,14 +9,15 @@ const ROUND_DURATION_SECONDS = 10;
 
 module.exports = {
   // --- Round / sentence ---
-  ROUND_DURATION_SECONDS: 15,        // round duration
+  ROUND_DURATION_SECONDS: 30,       // round duration
   CURRENT_TEXT_LENGTH: 500,         // words visible in the rolling sentence
 
   // --- Client UX ---
   INPUT_MAX_CHARS: 40,              // enforce client + server
 
   // --- Bot / seeding ---
-  BOT_LOOKBACK_MULTIPLIER: 1,       // bot scans 5× the current sentence length
+  BOT_LOOKBACK_MULTIPLIER: 1,       // bot scan
+  BOT_SENTENCE_MAX_WORDS: 50,       // bot generation
   BOT_SEEDS: ["echo","neon","murmur","flux","orbit","paper","glass","river","quiet",
                "amber","stone","cloud","pulse","still","north","velvet"],
 
