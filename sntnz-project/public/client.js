@@ -46,6 +46,7 @@ let feedbackTimeout;
 let lastScrollHeight = 0;
 let isLoadingMore = false;
 let noMoreHistory = false;
+let isBooting = true;
 const charsFadedInCount = 100;
 
 // ============================================================================
@@ -134,7 +135,7 @@ function updateScrollEffects() {
   const showTopFade = true;
 
   // Trigger "load more" when scrolled to the top
-  if (el.scrollTop < 50) { // Using a 50px threshold from the top
+  if (el.scrollTop < 50 && !isBooting) { // Using a 50px threshold from the top
     loadMoreHistory();
   }
 
@@ -387,11 +388,21 @@ socket.on('initialState', ({ currentText, liveSubmissions, nextTickTimestamp: se
   try { renderLiveFeed(liveSubmissions); } catch (e) { console.error('renderLiveFeed failed', e); }
   nextTickTimestamp = serverTimestamp;
 
-  // Scroll to bottom on load
-  currentTextContainer.scrollTop = currentTextContainer.scrollHeight;
+  //Then jump to bottom (twice) with smooth disabled to avoid CSS interference
+  const el = currentTextContainer;
+  const prevBehavior = el.style.scrollBehavior;
+  el.style.scrollBehavior = 'auto';
 
-  // Store the height for future line removal
-  lastScrollHeight = currentTextContainer.scrollHeight;
+  requestAnimationFrame(() => {
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+      el.style.scrollBehavior = prevBehavior;
+      lastScrollHeight = el.scrollHeight;
+      isBooting = false;
+      updateScrollEffects();
+    });
+  });
 });
 
 socket.on('nextTick', ({ nextTickTimestamp: serverTimestamp }) => {

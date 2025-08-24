@@ -22,6 +22,9 @@
   --button-small-size: 35px;
   --scrollbar-width: 5px;
 
+  /* Margins */
+  --main-margin: 80px;
+
   /* Borders */
   --border-width: 1px;
   --border-radius: 5px;
@@ -48,8 +51,7 @@ body {
   font-size: 1rem;
   background-color: var(--color-white);
   color: var(--color-black);
-  margin-right: 10%;
-  margin-left: 10%;
+  margin: var(--main-margin);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -100,16 +102,15 @@ body {
   text-align: center;
   font-weight: var(--font-weight-regular);
   margin-top: 0;
-  margin-bottom: calc(var(--spacing-base) * 3);
+  margin-bottom: calc(var(--spacing-base));
 }
 
 .current-text {
   font-size: 1rem;
   line-height: 1.6;
-  margin-bottom: calc(var(--spacing-base) * 3);
-  padding: var(--spacing-base);
+  margin-bottom: calc(var(--spacing-base)*2);
   font-weight: var(--font-weight-light);
-  min-height: 50px;
+  min-height: 200px;
   width: 100%;
 }
 
@@ -130,8 +131,8 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 4rem;
-  background: linear-gradient(to bottom, var(--color-white) 40%, transparent);
+  height: 5rem;
+  background: linear-gradient(to bottom, var(--color-white), transparent);
   pointer-events: none;
   z-index: 5;
 }
@@ -142,8 +143,8 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 4rem;
-  background: linear-gradient(to top, var(--color-white) 40%, transparent);
+  height: 5rem;
+  background: linear-gradient(to top, var(--color-white), transparent);
   pointer-events: none;
   z-index: 5;
 }
@@ -303,7 +304,6 @@ body {
 
 .history-header {
   text-align: center;
-  margin: 1rem 0 0.5rem 0;
 }
 
 .history-header h1 {
@@ -315,9 +315,8 @@ body {
 }
 
 #historyContainer {
-  max-width: 980px;
   width: 100%;
-  margin: 0 auto;
+  margin: var(--main-margin);
   padding: 0 1rem;
 }
 
@@ -330,7 +329,6 @@ body {
 .history-time-marker {
   display: flex;
   align-items: center;
-  margin-top: 1.5rem;
   border-top: 1px dotted #bbb;
   padding-top: 0.5rem;
   color: var(--color-grey2);

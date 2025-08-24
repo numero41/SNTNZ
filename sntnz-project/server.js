@@ -27,7 +27,10 @@ const server = http.createServer(app);
 if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
 
 // Use env or default localhost in dev
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
+const ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 // Prefer pure websockets; add sane timeouts/buffers; set CORS
 const io = new Server(server, {
@@ -35,11 +38,7 @@ const io = new Server(server, {
   pingInterval: 25000,
   pingTimeout: 20000,
   maxHttpBufferSize: 10_000,
-  cors: {
-    // In dev, defaults to localhost. In prod, set CORS_ORIGIN to your live URL.
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    methods: ['GET'],
-  },
+  cors: { origin: ORIGINS, methods: ['GET'] } // Socket.IO supports array
 });
 
 // Use the platform-assigned port in prod (Render/Heroku/Railway/etc.)
@@ -869,8 +868,13 @@ app.get('/history/today.ndjson', (req, res) => {
 
 // Basic hardening & logs
 app.use(pinoHttp());
-app.use(helmet({ crossOriginResourcePolicy: false })); // keep fonts/imgs happy
-app.use(cors({ origin: CORS_ORIGIN }));
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    cb(null, ORIGINS.includes(origin));
+  }
+}));
 
 // Narrow parsers + limits (future-proof)
 app.use(express.json({ limit: '2kb' }));
