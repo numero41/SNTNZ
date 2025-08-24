@@ -9,7 +9,7 @@ const ROUND_DURATION_SECONDS = 10;
 
 module.exports = {
   // --- Round / sentence ---
-  ROUND_DURATION_SECONDS: 30,       // round duration
+  ROUND_DURATION_SECONDS: 60,       // round duration
   CURRENT_TEXT_LENGTH: 500,         // words visible in the rolling sentence
 
   // --- Client UX ---

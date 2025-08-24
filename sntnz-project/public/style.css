@@ -120,6 +120,7 @@ body {
   margin-bottom: calc(var(--spacing-base)*2);
   font-weight: var(--font-weight-light);
   min-height: 200px;
+  min-width: 200px;
   width: 100%;
 }
 
