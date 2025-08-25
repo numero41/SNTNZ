@@ -33,8 +33,16 @@ const timerDisplay = document.getElementById('timer');
 const styleOptions = document.getElementById('styleOptions');
 const submitButton = document.getElementById('submitButton');
 const feedbackMessage = document.getElementById('feedbackMessage');
+const tooltip = document.getElementById('wordTooltip');
 
-addNavEvents()
+const btnInfo = document.getElementById('btnInfo');
+const infoModal = document.getElementById('infoModal');
+const modalOverlay = infoModal.querySelector('.modal-overlay');
+const modalClose = infoModal.querySelector('.modal-close');
+
+addNavEvents();
+addTooltipEvents();
+addInfoModalEvents();
 
 // ============================================================================
 // --- CLIENT-SIDE STATE ---
@@ -45,7 +53,6 @@ let nextTickTimestamp = 0;
 let feedbackTimeout;
 let lastScrollHeight = 0;
 let isLoadingMore = false;
-let noMoreHistory = false;
 let isBooting = true;
 const charsFadedInCount = 100;
 
@@ -83,7 +90,6 @@ function showFeedback(message) {
   }, 3000);
 }
 
-
 /**
  * addNavEvents
  * -------------
@@ -119,6 +125,33 @@ function addNavEvents() {
 
   // Add scroll events to the container to update button states
   currentTextContainer.addEventListener('scroll', updateScrollEffects);
+}
+
+/**
+ * addInfoModalEvents
+ * ------------------
+ * Attaches click handlers to open and close the information modal.
+ * - Opens the modal when the info button (?) is clicked.
+ * - Closes the modal when the close button (×) is clicked.
+ * - Closes the modal when the dark background overlay is clicked.
+ */
+function addInfoModalEvents() {
+  if (!btnInfo || !infoModal || !modalOverlay || !modalClose) return;
+
+  // Open modal when the info button is clicked
+  btnInfo.addEventListener('click', () => {
+    infoModal.classList.add('visible');
+  });
+
+  // Close modal when the 'X' button is clicked
+  modalClose.addEventListener('click', () => {
+    infoModal.classList.remove('visible');
+  });
+
+  // Close modal when the dark overlay is clicked
+  modalOverlay.addEventListener('click', () => {
+    infoModal.classList.remove('visible');
+  });
 }
 
 /**
@@ -159,52 +192,98 @@ function updateScrollEffects() {
  * Manages the scroll position to provide a seamless experience.
  */
 async function loadMoreHistory() {
-  if (isLoadingMore || noMoreHistory || currentWordsArray.length === 0) return;
+  if (isLoadingMore || currentWordsArray.length === 0) return;
 
   isLoadingMore = true;
-  //loadingSpinner.style.display = 'block';
+  console.log("Attempting to load more history...");
 
   const oldestWord = currentWordsArray[0];
   const oldestTimestamp = oldestWord.ts;
 
   try {
     const response = await fetch(`/api/history/before?ts=${oldestTimestamp}&limit=50`);
-    const olderWords = await response.json();
+    const olderWords = await response.json(); // Received newest-to-oldest
 
-    if (olderWords.length === 0) {
-      noMoreHistory = true; // No more data to load
-      console.log("Reached the beginning of the history.");
-      return;
+    if (olderWords.length > 0) {
+      const container = currentTextContainer;
+      const oldScrollHeight = container.scrollHeight;
+
+      // 1. Render the words. The newest-to-oldest order is correct
+      //    for the .prepend() loop to make them appear chronologically.
+      olderWords.forEach(wordData => {
+        const wordSpan = document.createElement('span');
+        wordSpan.textContent = wordData.word + ' ';
+        wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
+        wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
+        wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
+        container.prepend(wordSpan);
+      });
+
+      // 2. Reverse the array *before* updating the state.
+      //    This ensures our internal array is always chronological (oldest-first).
+      const correctlyOrderedOlderWords = olderWords.reverse();
+      currentWordsArray = [...correctlyOrderedOlderWords, ...currentWordsArray];
+
+      // Adjust scroll position to keep the user's view stable
+      const newScrollHeight = container.scrollHeight;
+      container.scrollTop = newScrollHeight - oldScrollHeight;
+    } else {
+      console.log("No older history found.");
     }
-
-    // --- The key to preventing scroll jump ---
-    const container = currentTextContainer;
-    const oldScrollHeight = container.scrollHeight;
-
-    // Prepend the new words. We reverse them because the server sends them newest-first.
-    olderWords.reverse().forEach(wordData => {
-      const wordSpan = document.createElement('span');
-      wordSpan.textContent = wordData.word + ' ';
-      wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
-      wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
-      wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
-      container.prepend(wordSpan);
-    });
-
-    // Update the client-side state
-    currentWordsArray = [...olderWords, ...currentWordsArray];
-
-    // Adjust scroll position to keep the user's view stable
-    const newScrollHeight = container.scrollHeight;
-    container.scrollTop = newScrollHeight - oldScrollHeight;
-    lastScrollHeight = container.scrollHeight;
 
   } catch (error) {
     console.error("Failed to load more history:", error);
   } finally {
     isLoadingMore = false;
-    //loadingSpinner.style.display = 'none';
   }
+}
+
+/**
+ * addTooltipEvents
+ * ----------------
+ * Adds event listeners to show a tooltip with word stats when a word is clicked.
+ * The tooltip will reposition itself to avoid being clipped by the screen edges.
+ */
+function addTooltipEvents() {
+  // Show tooltip on word click
+  currentTextContainer.addEventListener('click', (e) => {
+    const wordSpan = e.target.closest('.word');
+    if (wordSpan && tooltip) {
+      const data = wordSpan.dataset;
+      const date = new Date(parseInt(data.ts));
+
+      // 1. Populate the tooltip's content first
+      tooltip.innerHTML = `
+        <strong>Author:</strong> ${data.username}<br>
+        <strong>Time:</strong> ${date.toLocaleTimeString()}<br>
+        <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
+      `;
+
+      // 2. Get the dimensions of the tooltip and the window
+      const tooltipWidth = tooltip.offsetWidth;
+      const windowWidth = window.innerWidth;
+
+      // 3. Calculate the new position
+      let newLeft = e.pageX + 15; // Start with a default position to the right of the cursor
+
+      // 4. Check if the tooltip would go off the right side of the screen
+      if (newLeft + tooltipWidth > windowWidth) {
+        newLeft = e.pageX - tooltipWidth - 15; // If so, flip it to the left of the cursor
+      }
+
+      // 5. Apply the final, calculated position and make it visible
+      tooltip.style.left = `${newLeft}px`;
+      tooltip.style.top = `${e.pageY + 15}px`;
+      tooltip.classList.add('visible');
+    }
+  });
+
+  // Hide tooltip when clicking anywhere else
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.word') && tooltip) {
+      tooltip.classList.remove('visible');
+    }
+  }, true);
 }
 
 // ============================================================================
@@ -214,17 +293,26 @@ async function loadMoreHistory() {
 /**
  * renderWords
  * -----------
- * Renders an array of words by appending them to the container.
+ * Renders an array of words by appending them to the container,
+ * making each word clickable with embedded data for the tooltip.
  *
- * @param {Array<{word: string, styles: object}>} wordsArray
+ * @param {Array<Object>} wordsArray - The array of word data to render.
  */
 function renderWords(wordsArray) {
   // Create and append a styled span for each word
   wordsArray.forEach((wordData) => {
     const wordSpan = document.createElement('span');
 
-    wordSpan.textContent = wordData.word + ' ';
+    // Add class and data attributes for the tooltip
+    wordSpan.className = 'word';
+    wordSpan.dataset.ts = wordData.ts;
+    wordSpan.dataset.username = wordData.username;
+    wordSpan.dataset.count = wordData.count;
+    wordSpan.dataset.total = wordData.total;
+    wordSpan.dataset.pct = wordData.pct;
 
+    // Set the word content and styling
+    wordSpan.textContent = wordData.word + ' ';
     wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
     wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
     wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
@@ -322,22 +410,45 @@ function renderLiveFeed(feedData) {
 // ============================================================================
 
 styleOptions.addEventListener('click', (event) => {
-  const target = event.target;
-  if (!target.classList.contains('style-btn')) return;
+  const target = event.target.closest('.style-btn');
+  if (!target) return;
+
   const style = target.dataset.style;
-  if (style) {
+  const noStyleButton = document.querySelector('[data-style="none"]');
+  const styleButtons = Array.from(document.querySelectorAll('[data-style="bold"], [data-style="italic"], [data-style="underline"]'));
+
+  if (style === 'none') {
+    // If "no style" is clicked, deactivate all others and activate it.
+    styleButtons.forEach(btn => btn.classList.remove('active'));
+    target.classList.add('active');
+  } else {
+    // If a regular style button (B, I, U) is clicked,
+    // deactivate "no style" and toggle the one that was clicked.
+    noStyleButton.classList.remove('active');
     target.classList.toggle('active');
-    selectedStyles[style] = target.classList.contains('active');
-    input.style.fontWeight = selectedStyles.bold ? 'bold' : 'normal';
-    input.style.fontStyle = selectedStyles.italic ? 'italic' : 'normal';
-    input.style.textDecoration = selectedStyles.underline ? 'underline' : 'none';
   }
+
+  // After any click, check if any regular style button is active.
+  // If not, activate the "no style" button automatically.
+  const isAnyStyleActive = styleButtons.some(btn => btn.classList.contains('active'));
+  if (!isAnyStyleActive) {
+    noStyleButton.classList.add('active');
+  }
+
+  // Finally, update the global styles object and the input's appearance.
+  selectedStyles.bold = document.querySelector('[data-style="bold"]').classList.contains('active');
+  selectedStyles.italic = document.querySelector('[data-style="italic"]').classList.contains('active');
+  selectedStyles.underline = document.querySelector('[data-style="underline"]').classList.contains('active');
+
+  input.style.fontWeight = selectedStyles.bold ? 'bold' : 'normal';
+  input.style.fontStyle = selectedStyles.italic ? 'italic' : 'normal';
+  input.style.textDecoration = selectedStyles.underline ? 'underline' : 'none';
 });
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  const wordToSubmit = input.value;
+  const wordToSubmit = input.value.trim();
   if (wordToSubmit) {
     const punctuationRegex = new RegExp(CFG.PUNCTUATION_REGEX_STRING);
     if (!punctuationRegex.test(wordToSubmit)) {

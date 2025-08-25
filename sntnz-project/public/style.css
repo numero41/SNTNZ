@@ -4,13 +4,17 @@
 :root {
   --page-gutter: clamp(16px, 5vw, 32px);
 
-  /* Colors */
+  /* Colors (base palette) */
   --color-white: #fff;
   --color-black: #000;
   --color-grey1: #ccc;
   --color-grey2: #808080;
   --color-grey3: #333;
   --color-error: #e74c3c;
+
+  /* App roles derived from palette */
+  --color-secondary: var(--color-white); /* default secondary bg for buttons/controls */
+  --overlay-scrim: color-mix(in srgb, var(--color-black) 60%, var(--color-white) 40%); /* ≈ rgba(0,0,0,0.6) using vars */
 
   /* Typography */
   --font-main: 'IBM Plex Mono', monospace;
@@ -42,11 +46,14 @@
 /* ============================================================================
    --- GLOBAL STYLES ---
 ============================================================================ */
+
+/* Root html baseline */
 html {
   align-items: center;
   font-size: 100%;
 }
 
+/* Page body layout & typography baseline */
 body {
   min-height: calc(100dvh - var(--spacing-base));
   font-family: var(--font-main);
@@ -63,6 +70,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Shared horizontal padding for main zones */
 #historyContainer,
 .main-content {
   padding-inline: var(--page-gutter);
@@ -71,6 +79,8 @@ body {
 /* ============================================================================
    --- LAYOUT ---
 ============================================================================ */
+
+/* Container (page wrapper) */
 .container {
   display: flex;
   flex-direction: column;
@@ -82,6 +92,7 @@ body {
   padding-right: max(var(--page-gutter), env(safe-area-inset-right));
 }
 
+/* Main content column */
 .main-content {
   width: 100%;
   display: flex;
@@ -89,6 +100,7 @@ body {
   align-items: center;
 }
 
+/* Right/secondary sidebar panel */
 .sidebar {
   width: var(--content-width);
   max-width: 100%;
@@ -102,39 +114,47 @@ body {
 /* ============================================================================
    --- TYPOGRAPHY & CONTENT ---
 ============================================================================ */
+
+/* Site title and short headline */
 .site-title {
-  font-size: 2.5rem;
+  font-size: 2rem;
   text-align: center;
   margin-bottom: calc(var(--spacing-base) / 2);
 }
 
 .headline {
+  font-size: 1rem;
   text-align: center;
   font-weight: var(--font-weight-regular);
   margin-bottom: calc(var(--spacing-base));
 }
 
+/* Main editable/preview text block */
 .current-text {
   font-size: 1rem;
   line-height: 1.6;
   margin-bottom: calc(var(--spacing-base)*2);
-  font-weight: var(--font-weight-light);
+  font-weight: var(--font-weight-regular);
   min-height: 200px;
   min-width: 200px;
   width: 100%;
 }
 
+/* Scrollable variant of the text block */
 .current-text.scrollable{
   text-align: justify;
   max-height: 20vh;
-  overflow-y: scroll;
+  padding-right: 1rem;
+  overflow-y: auto;
   scroll-behavior: smooth;
 }
 
+/* Wrapper for fade masks on scrollable content */
 .text-wrapper {
   position: relative;
 }
 
+/* Top fade mask */
 .text-wrapper.show-top-fade::before {
   content: '';
   position: absolute;
@@ -147,6 +167,7 @@ body {
   z-index: 5;
 }
 
+/* Bottom fade mask */
 .text-wrapper.show-bottom-fade::after {
   content: '';
   position: absolute;
@@ -159,12 +180,14 @@ body {
   z-index: 5;
 }
 
+/* Sidebar list (history/tags/whatever) */
 .sidebar ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
+/* Sidebar list item */
 .sidebar li {
   padding-bottom: calc(var(--spacing-base) / 2);
   animation: fadeIn 0.5s ease-in-out;
@@ -172,6 +195,7 @@ body {
   word-wrap: break-word;
 }
 
+/* Placeholder/empty-state list item */
 .sidebar li.placeholder {
   color: var(--color-grey1);
   font-style: italic;
@@ -181,13 +205,15 @@ body {
 /* ============================================================================
    --- FORM & CONTROLS ---
 ============================================================================ */
+
+/* Submission area row (input + button) */
 .submission-area {
   display: flex;
-  max-width: 100%;
 }
 
+/* Text input styling */
 .submission-area input {
-  flex-grow: 1;
+  flex: 1;
   font-size: 1rem;
   font-family: inherit;
   padding: calc(var(--spacing-base) / 2);
@@ -197,17 +223,20 @@ body {
   transition: var(--transition-fast);
 }
 
+/* Input focus/hover state */
 .submission-area input:focus,
 .submission-area input:hover {
   outline: none;
   border-color: var(--color-black);
 }
 
+/* Input placeholder color */
 .submission-area input::placeholder {
   color: var(--color-grey2);
   opacity: 1;
 }
 
+/* Primary submit button */
 #submitButton {
   font-family: inherit;
   font-size: 1rem;
@@ -222,16 +251,21 @@ body {
   text-align: center;
 }
 
-#submitButton:hover {
-  background-color: var(--color-black);
-  color: var(--color-white);
+/* Submit button hover (pointer devices) */
+@media (hover: hover) {
+  #submitButton:hover {
+    background-color: var(--color-black);
+    color: var(--color-white);
+  }
 }
 
+/* Submit button active/press state */
 #submitButton:active {
-  transform: scale(0.97);
+  transform: scale(0.9);
   background-color: var(--color-grey3);
 }
 
+/* Inline style button row (B / I / U) */
 .style-options {
   margin-top: var(--spacing-base);
   display: flex;
@@ -239,6 +273,7 @@ body {
   align-items: center;
 }
 
+/* Inline style button base */
 .style-btn {
   font-family: inherit;
   font-size: 0.9rem;
@@ -251,10 +286,12 @@ body {
   transition: var(--transition-fast);
 }
 
+/* Variant indicators */
 .style-btn[data-style="bold"] { font-weight: var(--font-weight-bold); }
 .style-btn[data-style="italic"] { font-style: italic; }
 .style-btn[data-style="underline"] { text-decoration: underline; }
 
+/* Style button hover/active */
 .style-btn:hover {
   border-color: var(--color-black);
 }
@@ -266,6 +303,8 @@ body {
 /* =====================================================================
    --- NAV BUTTONS ---
 ===================================================================== */
+
+/* History navigation controls row */
 .history-nav{
   display:flex;
   gap:.5rem;
@@ -273,6 +312,8 @@ body {
   align-items:center;
   margin: .5rem 0 1rem 0;
 }
+
+/* Navigation arrow buttons */
 .nav-arrow{
   appearance:none;
   background:transparent;
@@ -283,10 +324,13 @@ body {
   line-height:1;
   padding:.5rem .5rem;
 }
+
+/* Current page indicator */
 .nav-current{
   text-decoration: underline;
 }
 
+/* Arrow focus/disabled states */
 .nav-arrow:focus{
   outline: none;
 }
@@ -298,10 +342,12 @@ body {
 /* Optional left gutter for time markers (used in history page) */
 .history-gutter{
   width: 4.5rem; /* enough for HH:MM */
-  color:#666;
+  color: color-mix(in srgb, var(--color-black) 60%, var(--color-white) 40%); /* ≈ #666 */
   text-align:right;
   padding-right:.5rem;
 }
+
+/* History row alignment */
 .history-row{
   display:flex;gap:.75rem;
   align-items:flex-start;
@@ -310,6 +356,8 @@ body {
 /* ============================================================================
    --- FEEDBACK MESSAGE ---
 ============================================================================ */
+
+/* Inline validation/feedback container */
 .feedback-message {
   display: none;
   color: var(--color-error);
@@ -317,64 +365,153 @@ body {
   transition: max-height 0.25s ease, margin-top 0.25s ease, opacity 0.2s ease;
 }
 
+/* Visible/expanded state */
 .feedback-message.visible {
   display: block;
   opacity: 1;
+}
+
+/* ============================================================================
+   --- INFO MODAL ---
+============================================================================ */
+
+/* Small “i” info button next to title */
+.info-btn {
+  font-family: var(--font-main);
+  background: transparent;
+  color: var(--color-grey2);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  border: none;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Info button hover */
+.info-btn:hover {
+  color: var(--color-black);
+}
+
+/* Modal container (portal root) */
+.modal-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+  display: none; /* Hidden by default */
+  align-items: center;
+  justify-content: center;
+}
+
+/* Toggled visible state */
+.modal-container.visible {
+  display: flex; /* Shown with JavaScript */
+}
+
+/* Backdrop/scrim */
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--overlay-scrim);
+}
+
+/* Modal card/content */
+.modal-content {
+  position: relative;
+  background: var(--color-white);
+  padding: calc(var(--spacing-base) * 2);
+  border-radius: var(--border-radius);
+  max-width: 500px;
+  width: 90%;
+  z-index: 1001;
+  line-height: 1.6;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Modal headings/lists */
+.modal-content h2 {
+  margin-top: 0;
+}
+.modal-content ul {
+  padding-left: 20px;
+}
+
+/* Close (×) button */
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: var(--color-grey1);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+/* Close hover */
+.modal-close:hover {
+  color: var(--color-black);
+}
+
+/* Title layout adjustment when info button present */
+.site-title {
+  display: inline-block;
+  vertical-align: middle;
 }
 
 /* =====================================================================
    --- HISTORY PAGE ---
 ===================================================================== */
 
+/* Header area (title + subtitle) */
 .history-header {
   text-align: center;
 }
-
 .history-header h1 {
   margin: 0;
 }
-
 .history-subheader {
-  color: #666;
+  color: color-mix(in srgb, var(--color-black) 60%, var(--color-white) 40%); /* ≈ #666 */
 }
 
+/* History container sizing/padding */
 #historyContainer {
   width: 100%;
   margin: var(--main-margin);
   padding: 0 1rem;
 }
 
+/* Empty/error state text */
 .history-error {
   text-align: center;
   color: var(--color-grey2);
   margin-top: 2rem;
 }
 
-.history-time-marker {
-  display: flex;
-  align-items: center;
-  border-top: 1px dotted #bbb;
-  padding-top: 0.5rem;
-  color: var(--color-grey2);
-}
-
+/* History text block & interactive words */
 .history-text-block {
   font-family: var(--font-main);
   line-height: 1.8;
   font-weight: var(--font-weight-light);
   text-align: justify;
 }
-
-.history-text-block .word {
+.word {
   cursor: pointer;
   transition: background-color 0.2s ease;
   border-radius: 2px;
 }
-
-.history-text-block .word:hover {
-  background-color: #f0f0f0;
+.word:hover {
+  background-color: var(--color-grey1);
 }
 
+/* Word hover tooltip */
 .word-tooltip {
   position: absolute;
   visibility: hidden;
@@ -388,44 +525,14 @@ body {
   z-index: 100;
   white-space: nowrap;
 }
-
 .word-tooltip.visible {
   visibility: visible;
   opacity: 1;
 }
 
 /* --- Pagination --- */
-.pagination-nav {
-  text-align: center;
-  margin: 2rem 0;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-}
 
-.pagination-nav a {
-  color: var(--color-grey2);
-  text-decoration: none;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid var(--color-grey1);
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.pagination-nav a:hover {
-  color: var(--color-black);
-  border-color: var(--color-black);
-}
-
-.pagination-nav a.current {
-  color: var(--color-white);
-  background-color: var(--color-black);
-  border-color: var(--color-black);
-  pointer-events: none;
-}
-
-/* --- Pagination --- */
+/* Pagination container and layout */
 .pagination-nav {
   text-align: center;
   margin: 2rem 0;
@@ -437,6 +544,7 @@ body {
   padding-bottom: 4rem; /* Added margin below the navigation */
 }
 
+/* Pagination links (pages) */
 .pagination-nav a {
   color: var(--color-grey2);
   text-decoration: none;
@@ -445,12 +553,12 @@ body {
   border-radius: 4px;
   transition: all 0.2s ease;
 }
-
 .pagination-nav a:hover {
   color: var(--color-black);
   border-color: var(--color-black);
 }
 
+/* Current page chip */
 .pagination-nav a.current {
   color: var(--color-white);
   background-color: var(--color-black);
@@ -458,7 +566,7 @@ body {
   pointer-events: none;
 }
 
-/* Styling for the << < > >> navigation arrows */
+/* Navigation arrows (<< < > >>) inside pagination */
 .pagination-nav .nav-arrow {
   font-weight: bold;
   border: none;
@@ -466,7 +574,7 @@ body {
   padding: 0.25rem 0.5rem;
 }
 
-/* Style for disabled navigation arrows */
+/* Disabled pagination arrows/links */
 .pagination-nav a[disabled] {
   color: var(--color-grey1);
   pointer-events: none; /* Prevents clicking on disabled links */
@@ -474,11 +582,75 @@ body {
   border: none;
 }
 
+/* ============================================================================
+   --- HISTORY PAGE CHUNKS ---
+============================================================================ */
 
+/* Chunk wrapper */
+.history-chunk {
+  border-bottom: 1px dotted color-mix(in srgb, var(--color-white) 73%, var(--color-black) 27%); /* ≈ #bbb */
+  padding-bottom: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.history-chunk:last-child {
+  border-bottom: none;
+}
+
+/* Chunk metadata row */
+.chunk-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--color-grey2);
+}
+
+/* Chunk info (left side) */
+.chunk-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Hash badge (copy target) */
+.chunk-hash {
+  font-family: var(--font-main);
+  background-color: color-mix(in srgb, var(--color-white) 94%, var(--color-black) 6%); /* ≈ #f0f0f0 */
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.chunk-hash:hover {
+  background-color: color-mix(in srgb, var(--color-white) 88%, var(--color-black) 12%); /* ≈ #e0e0e0 */
+}
+
+/* Share button on chunks */
+.chunk-actions .share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-main);
+  background: transparent;
+  border: 1px solid var(--color-grey1);
+  border-radius: 5px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+  color: var(--color-grey2);
+}
+.chunk-actions .share-btn:hover {
+  border-color: var(--color-black);
+  color: var(--color-black);
+}
 
 /* ============================================================================
    --- SCROLLBARS ---
 ============================================================================ */
+
+/* Thin scrollbar (sidebar only) */
 .sidebar::-webkit-scrollbar {
   width: var(--scrollbar-width);
   border: none;
@@ -493,6 +665,8 @@ body {
 /* ============================================================================
    --- ANIMATIONS ---
 ============================================================================ */
+
+/* Fade-in translate animation used for list items and modal */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -501,6 +675,8 @@ body {
 /* ============================================================================
    --- FOOTER ---
 ============================================================================ */
+
+/* Site footer (sticky to bottom via flex) */
 .site-footer {
   margin-top: auto;
   text-align: center;

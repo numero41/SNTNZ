@@ -19,8 +19,8 @@
       ========================================================== -->
       <section class="header-section">
         <h1 class="site-title">snTnz</h1>
-        <h2 class="headline">Write the history together.</h2>
       </section>
+      <button id="btnInfo" class="headline info-btn">Write the history together [?]</button>
 
       <!-- =====================================================================
             NAV ARROWS (UP / CURRENT / DOWN / FULL HISTORY)
@@ -46,7 +46,13 @@
       ========================================================== -->
       <section class="submission-section">
         <form id="wordForm" class="submission-area">
-          <input id="wordInput" autocomplete="off" maxlength="40" placeholder="suggest the next word" />
+          <input id="wordInput"
+                autocomplete="off"
+                maxlength="40"
+                placeholder="type next word"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false" />
           <button type="submit" id="submitButton">
             <span id="timer">60</span>
           </button>
@@ -58,6 +64,7 @@
       ========================================================== -->
       <section class="style-options-section">
         <div id="styleOptions" class="style-options">
+          <button class="style-btn active" data-style="none">T&#x0338;</button>
           <button class="style-btn" data-style="bold">B</button>
           <button class="style-btn" data-style="italic">I</button>
           <button class="style-btn" data-style="underline">U</button>
@@ -76,6 +83,39 @@
     <aside class="sidebar">
       <ul id="liveFeedList"></ul>
     </aside>
+
+    <!-- =========================================================
+          INFORMATION MODAL
+    ========================================================== -->
+    <div id="infoModal" class="modal-container">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <button class="modal-close" aria-label="Close">&times;</button>
+        <h2>How It Works</h2>
+        <p>
+          This is a collaborative writing experiment to create a story that never ends, built one word at a time by everyone.
+        </p>
+        <ul>
+          <li><strong>Submit & Style:</strong> Type a word in the input field. You can use the buttons to make it bold, italic, or underlined before submitting.</li>
+          <li><strong>Vote:</strong> You can vote for any submitted word in the live feed simply by clicking on it. The more clicks a word gets, the higher its vote count.</li>
+          <li><strong>Win:</strong> Every <strong>60 seconds</strong>, the round ends, and the word with the most votes is permanently added to the story.</li>
+          <li><strong>Archive:</strong> Every <strong>250 characters</strong>, the story is sealed into a permanent "chunk" with a unique cryptographic hash, ensuring its history can never be altered.</li>
+        </ul>
+
+        <p>
+          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>) will contribute a word if no one else has made a suggestion during a round. Its suggestions appear in the live feed and can be voted on just like any other submission.
+        </p>
+
+        <p>
+          <strong>The Future:</strong> The vision is to grow this into a new form of digital literature. Future plans include broadcasting the story to social networks and implementing a system using <strong>user accounts or blockchain wallets</strong> to give contributors true ownership of the parts of the story they helped create.
+        </p>
+      </div>
+    </div>
+
+  <!-- =========================================================
+        WORDS TOOLTIPS
+  ========================================================== -->
+  <div id="wordTooltip" class="word-tooltip"></div>
   </main>
 
   <!-- =========================================================

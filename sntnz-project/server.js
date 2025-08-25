@@ -7,6 +7,7 @@ const express = require('express');         // Web framework: routing, static fi
 const http = require('http');               // Raw Node HTTP server (Socket.IO attaches to this)
 const { Server } = require('socket.io');    // Realtime events over WebSocket (w/ graceful fallbacks)
 const Filter = require('bad-words');        // Profanity filter for user-submitted tokens
+const crypto = require('crypto');           // Hashing functions
 
 const fs = require('fs');                   // Sync/streaming file ops (createReadStream, existsSync, appendFile)
 const fsPromises = require('fs').promises;  // Promise-based fs APIs (readFile, access) for async/await flows
@@ -68,6 +69,8 @@ let botQueue = [];
 let currentText = [];
 let submissionsBySocketId = new Map();
 let nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
+let historyBuffer = [];
+let characterCount = 0;
 
 // ============================================================================
 // --- HELPER FUNCTIONS ---
@@ -82,8 +85,7 @@ async function loadInitialTextFromHistory() {
   console.log('[history] Loading initial text from archive...');
   try {
     const file = dayFilePath(Date.now());
-    // Check if the file exists
-    await fsPromises.access(file);
+    await fsPromises.access(file); // Check if the file exists
 
     const data = await fsPromises.readFile(file, 'utf8');
     const lines = data.trim().split('\n').filter(Boolean);
@@ -92,19 +94,20 @@ async function loadInitialTextFromHistory() {
       return;
     }
 
-    // Parse all lines and immediately filter out any null/undefined entries
-    const historyRecords = lines.map(line => JSON.parse(line)).filter(Boolean);
+    // NEW LOGIC: Extract words from chunks, then take the last N words.
+    const allWordsFromChunks = lines
+      .map(line => JSON.parse(line))
+      .filter(chunk => chunk && Array.isArray(chunk.words)) // Ensure it's a valid chunk
+      .flatMap(chunk => chunk.words); // Flatten all 'words' arrays into one
 
-    // Take the last N records, where N is the text length constant
-    const latestWords = historyRecords.slice(-constants.CURRENT_TEXT_LENGTH);
-
-    // Directly assign the full objects.
-    currentText = latestWords;
+    // Take the last N words for the initial state.
+    currentText = allWordsFromChunks.slice(-constants.CURRENT_TEXT_LENGTH);
 
     console.log(`[history] Successfully loaded ${currentText.length} words.`);
+    // Also populate the bot context from this loaded history
+    currentText.forEach(w => pushBotContext(w.word));
 
   } catch (error) {
-    // This is expected if the file doesn't exist, so we just log it.
     if (error.code === 'ENOENT') {
       console.log('[history] No history file for today. Starting with a blank slate.');
     } else {
@@ -133,7 +136,12 @@ function getLiveFeedState() {
     const styleKey = `b:${submission.styles.bold}-i:${submission.styles.italic}-u:${submission.styles.underline}`;
     const compositeKey = `${submission.word.toLowerCase()}-${styleKey}`;
     if (!counts[compositeKey]) {
-      counts[compositeKey] = { word: submission.word, count: 0, styles: submission.styles };
+      counts[compositeKey] = {
+        word: submission.word,
+        count: 0,
+        styles: submission.styles,
+        username: submission.username
+      };
     }
     counts[compositeKey].count++;
     return counts;
@@ -221,6 +229,7 @@ if (liveFeed.length > 0) {
             italic: !!winner.styles.italic,
             underline: !!winner.styles.underline
         },
+        username: winner.username,
         pct: Number(pct.toFixed(4)),
         count,
         total
@@ -231,7 +240,7 @@ if (liveFeed.length > 0) {
     if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
 
     pushBotContext(winner.word);
-    appendHistoryLine(winnerRow);
+    addWordToHistoryBuffer(winnerRow);
 }
 
   // STEP 5: FINALLY, broadcast the updated text from the completed round.
@@ -329,7 +338,8 @@ async function runBotSubmission() {
     const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
     submissionsBySocketId.set(botKey, {
       word: planned,
-      styles: { bold: false, italic: false, underline: false }
+      styles: { bold: false, italic: false, underline: false },
+      username: constants.BOT_NAME
     });
     io.emit('liveFeedUpdated', getLiveFeedState());
     return;
@@ -436,10 +446,20 @@ async function runBotSubmission() {
   //========================================
   const wordCount = s => (s.trim().match(/\S+/g) || []).length;
   const endsPunct = s => /[.!?]$/.test(s.trim());
+  const stopWords = new Set(constants.STOP_WORDS);
   const noRepeats = s => {
-    const toks = s.toLowerCase().replace(/[.!?]$/, '').split(/\s+/);
+    const toks = s.toLowerCase().replace(/[.!?]$/, '').replace(/,/g, '').split(/\s+/);
     const seen = new Set();
-    for (const t of toks) { if (seen.has(t)) return false; seen.add(t); }
+    for (const t of toks) {
+      // Only check for repeats if the word is NOT a common stop word.
+      if (!stopWords.has(t)) {
+        if (seen.has(t)) {
+          console.log(`[bot] Sentence rejected due to repeated word: "${t}"`);
+          return false; // A meaningful word was repeated
+        }
+        seen.add(t);
+      }
+    }
     return true;
   };
   const notSameAsPrev = s => {
@@ -685,117 +705,8 @@ setInterval(() => {
 }, 100);
 
 // ============================================================================
-// --- ARCHIVE (NDJSON) SETUP ---
+// --- HISTORY AND CHUNKS SETUP ---
 // ============================================================================
-/**
- * GET /api/history/dates
- * ----------------------
- * Returns a sorted list of dates for which history files are available.
- * The dates are in YYYY-MM-DD format, from most to least recent.
- */
-app.get('/api/history/dates', (req, res) => {
-  ensureHistoryDir();
-  fs.readdir(historyDir, (err, files) => {
-    if (err) {
-      console.error('[api] Failed to read history directory:', err);
-      return res.status(500).json({ error: 'Could not list history files.' });
-    }
-    const dates = files
-      .filter(file => file.endsWith('.ndjson'))
-      .map(file => file.replace('.ndjson', ''))
-      .sort()
-    res.json(dates);
-  });
-});
-
-/**
- * GET /api/history/before
- * -----------------------
- * Returns a batch of history records that occurred before a given timestamp.
- * Used for infinite scrolling upwards.
- * Query params:
- * - ts: The Unix timestamp (in ms) to fetch records before.
- * - limit: The maximum number of records to return. Defaults to 50.
- */
-app.get('/api/history/before', async (req, res) => {
-  const ts = parseInt(req.query.ts, 10);
-  const limit = parseInt(req.query.limit, 10) || 50;
-  if (!ts || !Number.isFinite(ts)) {
-    return res.status(400).json({ error: 'A valid `ts` query parameter is required.' });
-  }
-
-  const oneDay = 24 * 60 * 60 * 1000;
-  let cursorTs = ts;
-  const out = [];
-
-  // Helper: read a file and push records < cutoffTs (if provided)
-  async function collectFromFile(filePath, cutoffTs, take = limit - out.length) {
-    try {
-      await fsPromises.access(filePath);
-    } catch {
-      return; // file for that day doesn't exist, just skip
-    }
-    const data = await fsPromises.readFile(filePath, 'utf8');
-    const lines = data.trim().split('\n').filter(Boolean);
-    const all = lines.map(line => JSON.parse(line));
-
-    const picked = all
-      .filter(r => (cutoffTs ? r.ts < cutoffTs : true))
-      .sort((a, b) => b.ts - a.ts) // newest-first
-      .slice(0, take);
-
-    out.push(...picked);
-  }
-
-  // 1) Try same-day file first with strict ts cutoff.
-  await collectFromFile(dayFilePath(cursorTs), cursorTs);
-
-  // 2) If not enough, walk back day-by-day, no cutoff (all are older by construction).
-  while (out.length < limit) {
-    cursorTs -= oneDay;
-    // Stop if we walked back an unreasonable amount (e.g., 365 days)
-    if (ts - cursorTs > 365 * oneDay) break;
-    await collectFromFile(dayFilePath(cursorTs), null);
-    if (out.length === 0 && !(await fsPromises
-      .access(dayFilePath(cursorTs))
-      .then(() => true)
-      .catch(() => false))) {
-      // No file for that day; keep walking
-      continue;
-    }
-    if (out.length >= limit) break;
-    // If the previous day's file existed but contributed less than needed,
-    // keep looping to even earlier days.
-  }
-
-  res.json(out.slice(0, limit));
-});
-
-/**
- * GET /api/history/:date
- * ----------------------
- * Streams the NDJSON file for a specific date.
- * The date parameter must be in YYYY-MM-DD format.
- */
-app.get('/api/history/:date', (req, res) => {
-  const { date } = req.params;
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-
-  // Security: Validate the date format to prevent directory traversal
-  if (!dateRegex.test(date)) {
-    return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
-  }
-
-  ensureHistoryDir();
-  const file = path.join(historyDir, `${date}.ndjson`);
-
-  if (!fs.existsSync(file)) {
-    return res.status(404).send(`No history found for date: ${date}`);
-  }
-
-  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-  fs.createReadStream(file).pipe(res);
-});
 
 /**
  * ensureHistoryDir
@@ -831,23 +742,217 @@ function dayFilePath(tsMs) {
 }
 
 /**
- * appendHistoryLine
- * -----------------
- * Appends one JSON line to today's NDJSON file. Creates the file/day if needed.
- *
- * @param {object} rec - Record with ts, minute, word, styles, pct, count, total, weight? (optional)
- *
- * @example
- * appendHistoryLine({ ts: Date.now(), minute: 29123456, word:"cloud", styles:{bold:false,italic:false,underline:false}, pct:62.5, count:5, total:8 });
+ * finalizeAndSaveChunk
+ * --------------------
+ * Hashes and saves the current history buffer to a file.
  */
-function appendHistoryLine(rec) {
-  ensureHistoryDir();
-  const file = dayFilePath(rec.ts);
-  const line = JSON.stringify(rec) + '\n';
-  fs.appendFile(file, line, 'utf8', (err) => {
-    if (err) console.error('[archive] append failed:', err);
-  });
+async function finalizeAndSaveChunk() {
+  if (historyBuffer.length === 0) return;
+
+  console.log(`[history] Finalizing chunk with ${characterCount} chars.`);
+
+  // Create a canonical string representation of the word data, including styles.
+  // Hashing this ensures the integrity of the content and its formatting.
+  const dataToHash = JSON.stringify(historyBuffer);
+  const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
+
+  const chunkText = historyBuffer.map(w => w.word).join(' ');
+
+  // The final chunk object to be saved.
+  const chunkObject = {
+    ts: historyBuffer[0].ts,
+    hash: hash,
+    text: chunkText,
+    words: [...historyBuffer], // Full word data for rich client-side rendering
+  };
+
+  const file = dayFilePath(chunkObject.ts);
+  const line = JSON.stringify(chunkObject) + '\n';
+
+  try {
+    await fsPromises.appendFile(file, line, 'utf8');
+    console.log(`[history] Successfully saved chunk ${hash.substring(0, 7)}`);
+  } catch (err) {
+    console.error('[archive] append failed:', err);
+  }
+
+  // Reset the buffer for the next chunk.
+  historyBuffer = [];
+  characterCount = 0;
 }
+
+/**
+ * addWordToHistoryBuffer
+ * ----------------------
+ * Adds a winning word to the history buffer and finalizes a chunk if full.
+ * @param {Object} wordObject - The winning word object.
+ */
+async function addWordToHistoryBuffer(wordObject) {
+  const wordLength = wordObject.word.length + 1; // +1 for the space
+
+  // If adding the new word would exceed the chunk length, save the current chunk first.
+  if (historyBuffer.length > 0 && characterCount + wordLength > constants.HISTORY_CHUNK_LENGTH) {
+    await finalizeAndSaveChunk();
+  }
+
+  historyBuffer.push(wordObject);
+  characterCount += wordLength;
+}
+
+/**
+ * GET /api/history/dates
+ * ----------------------
+ * Returns a sorted list of dates for which history files are available.
+ * The dates are in YYYY-MM-DD format, from most to least recent.
+ */
+app.get('/api/history/dates', (req, res) => {
+  ensureHistoryDir();
+  fs.readdir(historyDir, (err, files) => {
+    if (err) {
+      console.error('[api] Failed to read history directory:', err);
+      return res.status(500).json({ error: 'Could not list history files.' });
+    }
+    const dates = files
+      .filter(file => file.endsWith('.ndjson'))
+      .map(file => file.replace('.ndjson', ''))
+      .sort()
+    res.json(dates);
+  });
+});
+
+/**
+ * loadInitialTextFromHistory
+ * --------------------------
+ * Reads the latest entries from today's history file to pre-populate
+ * the current text when the server starts.
+ */
+async function loadInitialTextFromHistory() {
+  console.log('[history] Loading initial text from archive...');
+  try {
+    const file = dayFilePath(Date.now());
+    await fsPromises.access(file); // Check if the file exists
+
+    const data = await fsPromises.readFile(file, 'utf8');
+    const lines = data.trim().split('\n').filter(Boolean);
+    if (lines.length === 0) {
+      console.log('[history] History file is empty.');
+      return;
+    }
+
+    // CORRECT LOGIC: Extract words from chunks, then take the last N words.
+    const allWordsFromChunks = lines
+      .map(line => {
+        try { return JSON.parse(line); } catch { return null; } // Safely parse JSON
+      })
+      .filter(chunk => chunk && Array.isArray(chunk.words)) // Ensure it's a valid chunk
+      .flatMap(chunk => chunk.words); // Flatten all 'words' arrays into one
+
+    // Take the last N words for the initial state.
+    currentText = allWordsFromChunks.slice(-constants.CURRENT_TEXT_LENGTH);
+
+    console.log(`[history] Successfully loaded ${currentText.length} words.`);
+    // Also populate the bot context from this loaded history
+    currentText.forEach(w => pushBotContext(w.word));
+
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      console.log('[history] No history file for today. Starting with a blank slate.');
+    } else {
+      console.error('[history] Failed to load initial text:', error);
+    }
+  }
+}
+
+/**
+ * GET /api/history/before
+ * -----------------------
+ * Returns a batch of word objects that occurred before a given timestamp.
+ * Used for the main page's infinite scroll.
+ */
+app.get('/api/history/before', async (req, res) => {
+  const ts = parseInt(req.query.ts, 10);
+  const limit = parseInt(req.query.limit, 10) || 50;
+  if (!ts || !Number.isFinite(ts)) {
+    return res.status(400).json({ error: 'A valid `ts` query parameter is required.' });
+  }
+
+  const oneDay = 24 * 60 * 60 * 1000;
+  let cursorTs = ts;
+  let results = [];
+
+  // Helper to read a file and extract all words from its chunks
+  async function collectWordsFromFile(filePath) {
+    try {
+      await fsPromises.access(filePath);
+      const data = await fsPromises.readFile(filePath, 'utf8');
+      const lines = data.trim().split('\n').filter(Boolean);
+      const chunks = lines.map(line => JSON.parse(line));
+      // Use flatMap to get all words from all chunks in the file
+      // It safely handles old "word" objects by returning [] for them.
+      return chunks.flatMap(chunk => chunk.words || []);
+    } catch {
+      return []; // Return empty array if file doesn't exist or fails
+    }
+  }
+
+  // Keep searching backwards day-by-day until we find enough older words
+  for (let i = 0; i < 365; i++) { // Limit search to 1 year
+    const wordsFromFile = await collectWordsFromFile(dayFilePath(cursorTs));
+
+    // Find words in this file that are ACTUALLY older than our timestamp
+    const olderWordsInFile = wordsFromFile.filter(word => word.ts < ts);
+    results.push(...olderWordsInFile);
+
+    // If we have found enough, we can stop searching.
+    if (results.length >= limit) {
+      break;
+    }
+
+    // Move to the previous day for the next iteration
+    cursorTs -= oneDay;
+  }
+
+  // Sort and slice the final combined list of words
+  const finalResults = results
+    .sort((a, b) => b.ts - a.ts) // Newest first
+    .slice(0, limit);
+
+  res.json(finalResults);
+});
+
+/**
+ * GET /api/history/:date
+ * ----------------------
+ * Returns an array of history chunks for a specific date.
+ * The date parameter must be in YYYY-MM-DD format.
+ */
+app.get('/api/history/:date', async (req, res) => {
+  const { date } = req.params;
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (!dateRegex.test(date)) {
+    return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
+  }
+
+  ensureHistoryDir();
+  const file = path.join(historyDir, `${date}.ndjson`);
+
+  try {
+    await fsPromises.access(file); // Check if file exists
+    const fileContent = await fsPromises.readFile(file, 'utf-8');
+    if (!fileContent.trim()) return res.json([]); // Handle empty file
+
+    const lines = fileContent.trim().split('\n');
+    const chunks = lines.map(line => JSON.parse(line));
+    res.json(chunks);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: `No history found for date: ${date}` });
+    }
+    console.error(`[api] Error reading history for ${date}:`, error);
+    res.status(500).json({ error: 'Failed to retrieve history.' });
+  }
+});
 
 /**
  * GET /history/today.ndjson
@@ -933,6 +1038,15 @@ io.on('connection', (socket) => {
       io.emit('liveFeedUpdated', getLiveFeedState());
     }
   });
+
+  // Create a new submission object that includes the username
+  const submission = {
+    word: wordData.word,
+    styles: wordData.styles,
+    username: constants.ANONYMOUS_NAME // All human players are anonymous for now
+  };
+  submissionsBySocketId.set(socket.id, submission);
+  io.emit('liveFeedUpdated', getLiveFeedState());
 });
 
 // ============================================================================
