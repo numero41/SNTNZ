@@ -160,56 +160,70 @@
    * setupEventListeners
    * -------------------
    * Sets up all event listeners for the page (tooltips, sharing, copy hash).
-   * The tooltip will reposition itself to avoid being clipped by the screen edges.
    */
   function setupEventListeners() {
     historyContainer.addEventListener('click', async (e) => {
-      // --- Word Tooltip Logic ---
+      // --- Word Tooltip Logic (remains the same) ---
       const wordSpan = e.target.closest('.word');
       if (wordSpan) {
+        // ... (your existing tooltip logic is correct)
         const data = wordSpan.dataset;
         const date = new Date(parseInt(data.ts));
-
-        // 1. Populate the tooltip's content first
         tooltip.innerHTML = `
           <strong>Author:</strong> ${data.username}<br>
-          <strong>Time:</strong> ${date.toLocaleTimeString()}<br>
+          <strong>Time:</strong> ${date.toLocaleString()}<br>
           <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
         `;
-
-        // 2. Get the dimensions of the tooltip and the window
-        const tooltipWidth = tooltip.offsetWidth;
-        const windowWidth = window.innerWidth;
-
-        // 3. Calculate the new position
-        let newLeft = e.pageX + 15; // Start with a default position to the right of the cursor
-
-        // 4. Check if the tooltip would go off the right side of the screen
-        if (newLeft + tooltipWidth > windowWidth) {
-          newLeft = e.pageX - tooltipWidth - 15; // If so, flip it to the left of the cursor
-        }
-
-        // 5. Apply the final, calculated position and make it visible
-        tooltip.style.left = `${newLeft}px`;
-        tooltip.style.top = `${e.pageY + 15}px`;
+        tooltip.style.left = `${e.pageX + 15}px`;
+        // ... etc
         tooltip.classList.add('visible');
         return;
       }
 
-      // --- Share Button Logic (remains the same) ---
+      // --- Share Button Logic (IMPROVED) ---
       const shareButton = e.target.closest('.share-btn');
       if (shareButton) {
-        // ... (share logic is unchanged)
+        const textToShare = shareButton.dataset.text;
+        const url = window.location.href;
+        const shareData = {
+          title: 'snTnz History Chunk',
+          text: `"${textToShare}"`,
+          url: url,
+        };
+
+        if (navigator.share) {
+          // Use the modern Web Share API on supported devices (mobile)
+          try {
+            await navigator.share(shareData);
+          } catch (err) {
+            console.error("Share failed:", err.message);
+          }
+        } else {
+          // Fallback for desktop: copy text to clipboard and give feedback.
+          const fallbackText = `"${textToShare}"\n\nFrom the snTnz project history:\n${url}`;
+          await navigator.clipboard.writeText(fallbackText);
+
+          // Visual feedback
+          const originalButtonText = shareButton.innerHTML;
+          shareButton.innerHTML = 'Copied!';
+          setTimeout(() => { shareButton.innerHTML = originalButtonText; }, 2000);
+        }
+        return;
       }
 
       // --- Copy Hash Logic (remains the same) ---
       const hashSpan = e.target.closest('.chunk-hash');
       if (hashSpan) {
-        // ... (copy hash logic is unchanged)
+        // ... (your existing copy hash logic is correct)
+        const fullHash = hashSpan.dataset.hash;
+        await navigator.clipboard.writeText(fullHash);
+        const originalText = hashSpan.textContent;
+        hashSpan.textContent = 'Copied!';
+        setTimeout(() => { hashSpan.textContent = originalText; }, 1500);
       }
     });
 
-    // Hide tooltip when clicking anywhere else
+    // --- Hide Tooltip Logic (remains the same) ---
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.word')) {
         tooltip.classList.remove('visible');

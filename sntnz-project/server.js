@@ -560,7 +560,8 @@ async function runBotSubmission() {
   const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
   submissionsBySocketId.set(botKey, {
     word,
-    styles: { bold: false, italic: false, underline: false }
+    styles: { bold: false, italic: false, underline: false },
+    username: constants.BOT_NAME
   });
 
   // Broadcast the refreshed live feed
@@ -1028,7 +1029,14 @@ io.on('connection', (socket) => {
       console.log('[Bot] Human intervention detected. Clearing planned sentence.');
       botQueue = [];
     }
-    submissionsBySocketId.set(socket.id, wordData);
+
+    // Create a new submission object
+    const submission = {
+      word: wordData.word,
+      styles: wordData.styles,
+      username: constants.ANONYMOUS_NAME // All human players are anonymous for now
+    };
+    submissionsBySocketId.set(socket.id, submission);
     io.emit('liveFeedUpdated', getLiveFeedState());
   });
   socket.on('disconnect', () => {
@@ -1038,15 +1046,6 @@ io.on('connection', (socket) => {
       io.emit('liveFeedUpdated', getLiveFeedState());
     }
   });
-
-  // Create a new submission object that includes the username
-  const submission = {
-    word: wordData.word,
-    styles: wordData.styles,
-    username: constants.ANONYMOUS_NAME // All human players are anonymous for now
-  };
-  submissionsBySocketId.set(socket.id, submission);
-  io.emit('liveFeedUpdated', getLiveFeedState());
 });
 
 // ============================================================================

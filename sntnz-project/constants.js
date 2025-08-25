@@ -15,7 +15,7 @@ module.exports = {
 
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",      // Anonymous username
-  BOT_NAME: "sntnz_bot",            // bot username
+  BOT_NAME: "SNTNZ_BOT",            // bot username
   BOT_LOOKBACK_MULTIPLIER: 1,       // bot scan
   BOT_SENTENCE_MAX_WORDS: 50,       // bot generation
   BOT_SEEDS: ["echo","neon","murmur","flux","orbit","paper","glass","river","quiet",

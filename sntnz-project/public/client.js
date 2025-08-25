@@ -255,7 +255,7 @@ function addTooltipEvents() {
       // 1. Populate the tooltip's content first
       tooltip.innerHTML = `
         <strong>Author:</strong> ${data.username}<br>
-        <strong>Time:</strong> ${date.toLocaleTimeString()}<br>
+        <strong>Time:</strong> ${date.toLocaleString()}<br>
         <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
       `;
 
