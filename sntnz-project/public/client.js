@@ -252,28 +252,40 @@ function addTooltipEvents() {
       const data = wordSpan.dataset;
       const date = new Date(parseInt(data.ts));
 
+      // Format date and time separately
+      const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      const timeString = date.toLocaleTimeString();
+
       // 1. Populate the tooltip's content first
       tooltip.innerHTML = `
         <strong>Author:</strong> ${data.username}<br>
-        <strong>Time:</strong> ${date.toLocaleString()}<br>
+        <strong>Date:</strong> ${dateString}<br>
+        <strong>Time:</strong> ${timeString}<br>
         <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
       `;
 
-      // 2. Get the dimensions of the tooltip and the window
+      // 2. Get dimensions
       const tooltipWidth = tooltip.offsetWidth;
+      const tooltipHeight = tooltip.offsetHeight;
       const windowWidth = window.innerWidth;
+      const margin = 15;
 
-      // 3. Calculate the new position
-      let newLeft = e.pageX + 15; // Start with a default position to the right of the cursor
+      // 3. Positioning logic
+      // Start by centering on the cursor
+      let newLeft = e.pageX - (tooltipWidth / 2);
+      let newTop = e.pageY + margin;
 
-      // 4. Check if the tooltip would go off the right side of the screen
-      if (newLeft + tooltipWidth > windowWidth) {
-        newLeft = e.pageX - tooltipWidth - 15; // If so, flip it to the left of the cursor
+      // 4. Clamp the position to stay within window boundaries
+      if (newLeft < margin) {
+        newLeft = margin; // Prevent left overflow
+      }
+      if (newLeft + tooltipWidth > windowWidth - margin) {
+        newLeft = windowWidth - tooltipWidth - margin; // Prevent right overflow
       }
 
       // 5. Apply the final, calculated position and make it visible
       tooltip.style.left = `${newLeft}px`;
-      tooltip.style.top = `${e.pageY + 15}px`;
+      tooltip.style.top = `${newTop}px`;
       tooltip.classList.add('visible');
     }
   });

@@ -163,19 +163,44 @@
    */
   function setupEventListeners() {
     historyContainer.addEventListener('click', async (e) => {
-      // --- Word Tooltip Logic (remains the same) ---
+      // --- Word Tooltip Logic ---
       const wordSpan = e.target.closest('.word');
       if (wordSpan) {
-        // ... (your existing tooltip logic is correct)
         const data = wordSpan.dataset;
         const date = new Date(parseInt(data.ts));
+
+        // Format date and time separately
+        const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        const timeString = date.toLocaleTimeString();
+
+        // 1. Populate the tooltip's content
         tooltip.innerHTML = `
           <strong>Author:</strong> ${data.username}<br>
-          <strong>Time:</strong> ${date.toLocaleString()}<br>
+          <strong>Date:</strong> ${dateString}<br>
+          <strong>Time:</strong> ${timeString}<br>
           <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
         `;
-        tooltip.style.left = `${e.pageX + 15}px`;
-        // ... etc
+
+        // 2. Get dimensions
+        const tooltipWidth = tooltip.offsetWidth;
+        const tooltipHeight = tooltip.offsetHeight;
+        const windowWidth = window.innerWidth;
+        const margin = 15;
+
+        // 3. Positioning logic
+        let newLeft = e.pageX - (tooltipWidth / 2);
+        let newTop = e.pageY + margin;
+
+        if (newLeft < margin) {
+          newLeft = margin;
+        }
+        if (newLeft + tooltipWidth > windowWidth - margin) {
+          newLeft = windowWidth - tooltipWidth - margin;
+        }
+
+        // 4. Apply final position and make visible
+        tooltip.style.left = `${newLeft}px`;
+        tooltip.style.top = `${newTop}px`;
         tooltip.classList.add('visible');
         return;
       }

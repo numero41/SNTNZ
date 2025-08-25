@@ -94,7 +94,7 @@ async function loadInitialTextFromHistory() {
       return;
     }
 
-    // NEW LOGIC: Extract words from chunks, then take the last N words.
+    // Extract words from chunks, then take the last N words.
     const allWordsFromChunks = lines
       .map(line => JSON.parse(line))
       .filter(chunk => chunk && Array.isArray(chunk.words)) // Ensure it's a valid chunk
