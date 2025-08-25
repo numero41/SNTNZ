@@ -466,6 +466,16 @@ body {
   vertical-align: middle;
 }
 
+/* Media query for mobile screens */
+@media (max-width: 768px) {
+  .modal-content {
+    /* Set a max height relative to the viewport's height */
+    max-height: 85vh;
+
+    /* Add a vertical scrollbar only if the content overflows */
+    overflow-y: auto;
+  }
+}
 /* =====================================================================
    --- HISTORY PAGE ---
 ===================================================================== */
