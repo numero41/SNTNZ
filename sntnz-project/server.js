@@ -56,9 +56,13 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const path = require('path');
 const constants = require('./constants');
 const profanityFilter = new Filter();
-const historyDir = path.join(process.cwd(), 'history');
-const usersFilePath = path.join(__dirname, 'users.json');
-
+const dataDir = '/var/data';
+const historyDir = path.join(dataDir, 'history');
+const usersFilePath = path.join(dataDir, 'users.json');
+if (!fs.existsSync(historyDir)) {
+  fs.mkdirSync(historyDir, { recursive: true });
+  console.log(`Created persistent storage directory: ${historyDir}`);
+}
 // ============================================================================
 // --- GOOGLE AI SETUP ---
 // ============================================================================
