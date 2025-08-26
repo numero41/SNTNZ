@@ -7,20 +7,21 @@
 
 module.exports = {
   // --- Round / sentence ---
-  ROUND_DURATION_SECONDS: 60,        // round duration
-  CURRENT_TEXT_LENGTH: 100,         // words visible in the rolling sentence
+  ROUND_DURATION_SECONDS: 60,       // Round duration in seconds
+  CURRENT_TEXT_LENGTH: 100,         // Words visible in the rolling sentence
 
   // --- Client UX ---
-  INPUT_MAX_CHARS: 40,              // enforce client + server
+  INPUT_MAX_CHARS: 40,              // Max characters in input box
 
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",      // Anonymous username
   BOT_NAME: "SNTNZ_BOT",            // bot username
   BOT_LOOKBACK_MULTIPLIER: 1,       // bot scan
   BOT_SENTENCE_MAX_WORDS: 50,       // bot generation
+  BOT_INTERVAL_MINUTES: 60,         // min time between bot posts
   BOT_SEEDS: ["echo","neon","murmur","flux","orbit","paper","glass","river","quiet",
                "amber","stone","cloud","pulse","still","north","velvet"],
-  STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
+  BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
 
   // --- Validation ---
   PUNCTUATION_REGEX_STRING: "^[(\"'*_]*[a-zA-Z0-9'-]+[.,!?;:...\"'_)]*$",

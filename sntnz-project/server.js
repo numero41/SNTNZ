@@ -12,6 +12,11 @@ const crypto = require('crypto');           // Hashing functions
 const fs = require('fs');                   // Sync/streaming file ops (createReadStream, existsSync, appendFile)
 const fsPromises = require('fs').promises;  // Promise-based fs APIs (readFile, access) for async/await flows
 
+// Login and users
+const session = require('express-session');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
 // Google Generative AI SDK (Gemini)
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
@@ -52,6 +57,7 @@ const path = require('path');
 const constants = require('./constants');
 const profanityFilter = new Filter();
 const historyDir = path.join(process.cwd(), 'history');
+const usersFilePath = path.join(__dirname, 'users.json');
 
 // ============================================================================
 // --- GOOGLE AI SETUP ---
@@ -67,10 +73,12 @@ let botQueue = [];
 // --- STATE MANAGEMENT ---
 // ============================================================================
 let currentText = [];
-let submissionsBySocketId = new Map();
+let submissionsByUserId = new Map();
 let nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
 let historyBuffer = [];
 let characterCount = 0;
+let lastBotPostTimestamp = 0;
+let users = new Map();
 
 // ============================================================================
 // --- HELPER FUNCTIONS ---
@@ -130,7 +138,7 @@ async function loadInitialTextFromHistory() {
  * // -> [{ word: "Hello", count: 3, styles: { bold:false, italic:false, underline:false } }, ...]
  */
 function getLiveFeedState() {
-  const allCurrentSubmissions = Array.from(submissionsBySocketId.values());
+  const allCurrentSubmissions = Array.from(submissionsByUserId.values());
   if (allCurrentSubmissions.length === 0) return [];
   const voteCounts = allCurrentSubmissions.reduce((counts, submission) => {
     const styleKey = `b:${submission.styles.bold}-i:${submission.styles.italic}-u:${submission.styles.underline}`;
@@ -195,7 +203,7 @@ function endRoundAndElectWinner() {
   const liveFeed = getLiveFeedState();
 
   // STEP 3: Reset the live submission state for the new round.
-  submissionsBySocketId.clear();
+  submissionsByUserId.clear();
   io.emit('liveFeedUpdated', []); // Tell clients to clear their live feed display.
 
   // STEP 4: Now, process the winner from the captured state.
@@ -323,7 +331,7 @@ function pickSeed(){
  *
  * @example
  * await runBotSubmission();
- * // -> Emitted 'liveFeedUpdated' with the bot's token added to submissionsBySocketId
+ * // -> Emitted 'liveFeedUpdated' with the bot's token added to submissionsByUserId
  */
 async function runBotSubmission() {
   //========================================
@@ -336,7 +344,7 @@ async function runBotSubmission() {
     botPlannedToken = planned;
 
     const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-    submissionsBySocketId.set(botKey, {
+    submissionsByUserId.set(botKey, {
       word: planned,
       styles: { bold: false, italic: false, underline: false },
       username: constants.BOT_NAME
@@ -446,7 +454,7 @@ async function runBotSubmission() {
   //========================================
   const wordCount = s => (s.trim().match(/\S+/g) || []).length;
   const endsPunct = s => /[.!?]$/.test(s.trim());
-  const stopWords = new Set(constants.STOP_WORDS);
+  const stopWords = new Set(constants.BOT_STOP_WORDS);
   const noRepeats = s => {
     const toks = s.toLowerCase().replace(/[.!?]$/, '').replace(/,/g, '').split(/\s+/);
     const seen = new Set();
@@ -558,7 +566,7 @@ async function runBotSubmission() {
 
   // Submit like a normal user
   const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-  submissionsBySocketId.set(botKey, {
+  submissionsByUserId.set(botKey, {
     word,
     styles: { bold: false, italic: false, underline: false },
     username: constants.BOT_NAME
@@ -683,27 +691,72 @@ setInterval(() => {
   const remainingMs = nextTickTimestamp - now;
   if (!Number.isFinite(remainingMs)) return;
 
-  // Half-way mark with display-friendly timing:
   const halfSec = Math.floor(constants.ROUND_DURATION_SECONDS / 2);
   const remFloor = Math.max(0, Math.floor(remainingMs / 1000));
   const remCeil  = Math.max(0, Math.ceil(remainingMs / 1000));
 
-  if (!botFiredThisRound && submissionsBySocketId.size === 0) {
+  // BOT: Check if an hour has passed since the last bot post
+  const botPostInterval = constants.BOT_INTERVAL_MINUTES * 60 * 1000; // 1 hour in milliseconds
+  const canBotPost = now - lastBotPostTimestamp > botPostInterval;
+
+  if (canBotPost && !botFiredThisRound && submissionsByUserId.size === 0) {
     if (remCeil === (halfSec)) {
       runBotSubmission();
       botFiredThisRound = true;
+      lastBotPostTimestamp = now; // Update the timestamp
     } else if (remFloor === 1) {
       runBotSubmission();
       botFiredThisRound = true;
+      lastBotPostTimestamp = now; // Also update the timestamp here
     }
   }
 
-  // Election boundary
   if (remainingMs <= 0) {
     endRoundAndElectWinner();
-    botFiredThisRound = false; // reset for the next round
+    botFiredThisRound = false;
   }
 }, 100);
+
+// ============================================================================
+// --- USERS STORAGE ---
+// ============================================================================
+
+/**
+ * saveUsersToFile
+ * ---------------
+ * Saves the current in-memory users map to a JSON file on disk.
+ */
+async function saveUsersToFile() {
+  // Convert Map to an array of [key, value] pairs for JSON compatibility
+  const usersArray = Array.from(users.entries());
+  try {
+    await fsPromises.writeFile(usersFilePath, JSON.stringify(usersArray, null, 2));
+  } catch (err) {
+    console.error('[db] Error saving users to file:', err);
+  }
+}
+
+/**
+ * loadUsersFromFile
+ * -----------------
+ * Loads the users from the JSON file into the in-memory map on startup.
+ */
+async function loadUsersFromFile() {
+  try {
+    await fsPromises.access(usersFilePath);
+    const data = await fsPromises.readFile(usersFilePath, 'utf8');
+    const usersArray = JSON.parse(data);
+    // Convert the array back into a Map
+    users = new Map(usersArray);
+    console.log(`[db] Successfully loaded ${users.size} users from disk.`);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.log('[db] users.json not found. Starting with an empty user database.');
+    } else {
+      console.error('[db] Error loading users from file:', err);
+    }
+  }
+}
 
 // ============================================================================
 // --- HISTORY AND CHUNKS SETUP ---
@@ -969,12 +1022,146 @@ app.get('/history/today.ndjson', (req, res) => {
 });
 
 // ============================================================================
-// --- SERVER SETUP ---
+// --- AUTHENTICATION & SESSION MIDDLEWARE ---
+// ============================================================================
+
+/**
+ * sessionMiddleware
+ * -----------------
+ * Configures express-session to manage user login states. The secret should
+ * be a long, random string stored in an environment variable for production.
+ */
+const sessionMiddleware = session({
+  // A secret used to sign the session ID cookie.
+  secret: process.env.SESSION_SECRET || 'a-very-secret-key-for-development',
+  // Don't save session if unmodified.
+  resave: false,
+  // Don't create session until something is stored.
+  saveUninitialized: false,
+  // Use secure cookies in production (requires HTTPS).
+  cookie: { secure: process.env.NODE_ENV === 'production' }
+});
+
+// ============================================================================
+// --- PASSPORT STRATEGY & SERIALIZATION ---
+// ============================================================================
+
+/**
+ * passport.use(new GoogleStrategy(...))
+ * --------------------------------------
+ * Configures the strategy for authenticating users with their Google account.
+ * This tells Passport how to use the client ID and secret to talk to Google.
+ */
+passport.use(new GoogleStrategy({
+    // Credentials from the Google Cloud Console.
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    // The URL Google will redirect to after the user grants permission.
+    callbackURL: "/auth/google/callback"
+  },
+  (accessToken, refreshToken, profile, done) => {
+    // Find or create a user in our "database"
+    let user = users.get(profile.id);
+
+    if (!user) {
+      // If the user doesn't exist, create a new record for them.
+      // The `username` is initially null.
+      user = {
+        googleId: profile.id,
+        googleProfile: profile, // Store the original profile
+        username: null,
+      };
+      users.set(profile.id, user);
+      saveUsersToFile();
+      console.log(`[auth] New user created with Google ID: ${profile.id}`);
+    }
+
+    // Pass the user object to the `done` callback.
+    return done(null, user);
+  }
+));
+
+/**
+ * passport.serializeUser
+ * ----------------------
+ * Stores the user's Google ID in the session. This is the key we use
+ * to look up the user in our in-memory `users` map.
+ */
+passport.serializeUser((user, done) => {
+  done(null, user.googleId);
+});
+
+/**
+ * passport.deserializeUser
+ * ------------------------
+ * Retrieves the full user object (including custom username) from our
+ * `users` map using the Google ID stored in the session.
+ */
+passport.deserializeUser((googleId, done) => {
+  const user = users.get(googleId);
+  console.log('[DEBUG] Deserializing user:', user);
+  done(null, user || null);
+});
+
+// ============================================================================
+// --- USERNAME MIDDLEWARE ---
+// ============================================================================
+
+/**
+ * checkUsername
+ * -------------
+ * An Express middleware that checks if a logged-in user has set their
+ * username. If they haven't, it redirects them to the /username.html page.
+ * This should be applied to all routes that require a username.
+ *
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @param {function} next - The next middleware function.
+ */
+function checkUsername(req, res, next) {
+  console.log(`[DEBUG] checkUsername for path: ${req.path} | Authenticated: ${req.isAuthenticated()}`);
+  // Allow unauthenticated users to pass through.
+  // Also, don't block the user from accessing the username page itself or the API to set it.
+  if (!req.isAuthenticated() || req.path.startsWith('/username') || req.path.startsWith('/api') || req.path === '/config') {
+    return next();
+  }
+
+  // If the user is authenticated but has no username, redirect them.
+  if (!req.user.username) {
+    return res.redirect('/username.html');
+  }
+
+  // If they have a username, proceed.
+  next();
+}
+
+// ============================================================================
+// --- SERVER SETUP & MIDDLEWARE ---
 // ============================================================================
 
 // Basic hardening & logs
 app.use(pinoHttp());
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(
+  helmet({
+    hsts: false, // Keep HSTS disabled for local development
+    crossOriginResourcePolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "script-src": [
+          "'self'",
+          "https://www.googletagmanager.com",
+          "'sha256-GgZ3hhZKwUu/qF2+i/fRQjMZt6bwv8t41R8t9vHbIJE='", // Your inline script
+        ],
+        // ADD THIS NEW DIRECTIVE:
+        "connect-src": [
+          "'self'",
+          "https://region1.google-analytics.com",
+        ],
+      },
+    },
+  })
+);
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);
@@ -995,8 +1182,22 @@ const apiLimiter = rateLimit({
 });
 app.use(['/config', '/api', '/history'], apiLimiter);
 
-// Static files
+// Initialize session and Passport AFTER other middleware
+app.use(sessionMiddleware);
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Initialize static files
 app.use(express.static(require('path').join(__dirname, 'public')));
+
+// Apply the username check middleware globally after auth middleware.
+// This ensures that any subsequent route handlers for authenticated users
+// will only run if the user has a username.
+app.use(checkUsername);
+
+// ============================================================================
+// --- APP ROUTES ---
+// ============================================================================
 
 // Health checks (for uptime monitors / load balancers)
 app.get('/healthz', (_req, res) => res.type('text').send('ok'));
@@ -1006,47 +1207,207 @@ app.get('/config', (_req, res) => {
   res.json(constants);
 });
 
+// --- AUTHENTICATION ROUTES ---
+
+/**
+ * GET /auth/google
+ * ----------------
+ * The first step in Google authentication. Redirects the user to Google's
+ * consent screen to ask for permission.
+ */
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile'], prompt: 'select_account' }));
+
+/**
+ * GET /auth/google/callback
+ * -------------------------
+ * Google redirects the user back to this URL after they have authenticated.
+ * Passport middleware completes the login process.
+ */
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login.html' }),
+  (req, res) => {
+    // After successful authentication, check if the user needs to set a username.
+    if (req.user && !req.user.username) {
+      // If they don't have a username, send them directly to the username page.
+      res.redirect('/username.html');
+    } else {
+      // Otherwise, send them to the main application page.
+      res.redirect('/');
+    }
+  }
+);
+
+/**
+ * GET /logout
+ * -----------
+ * Logs the user out by destroying their session and redirects to the home page.
+ */
+app.get('/logout', (req, res, next) => {
+  req.logout((err) => {
+    if (err) {
+      return next(err);
+    }
+    // Destroy the session completely
+    req.session.destroy((err) => {
+      if (err) {
+        return next(err);
+      }
+      // Clear the cookie and redirect
+      res.clearCookie('connect.sid');
+      res.redirect('/');
+    });
+  });
+});
+
+/**
+ * GET /api/user
+ * -------------
+ * An API endpoint for the client-side to check if a user is currently logged in
+ * and get their display name.
+ */
+app.get('/api/user', (req, res) => {
+  if (req.isAuthenticated()) {
+    // If user is logged in, send back their name.
+    res.json({ username: req.user.username, loggedIn: true });
+  } else {
+    // If not logged in, send back null.
+    res.json({ username: null, loggedIn: false });
+  }
+});
+
+/**
+ * POST /api/username
+ * ------------------
+ * Allows a new user to set their unique username.
+ */
+app.post('/api/username', (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: 'You must be logged in.' });
+  }
+
+  if (req.user.username) {
+    return res.status(400).json({ message: 'Username has already been set.' });
+  }
+
+  // Get the username
+  const { username } = req.body;
+
+  // Validation
+  if (!username || typeof username !== 'string' || username.length < 3 || username.length > 20) {
+    return res.status(400).json({ message: 'Username must be 3-20 characters long.' });
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    return res.status(400).json({ message: 'Username can only contain letters, numbers, and underscores.' });
+  }
+
+  // Check for uniqueness
+  for (const u of users.values()) {
+    if (u.username && u.username.toLowerCase() === username.toLowerCase()) {
+      return res.status(409).json({ message: 'Username is already taken.' });
+    }
+  }
+
+  // Save the username
+  req.user.username = username;
+  users.set(req.user.googleId, req.user);
+
+  // Explicitly save the session before responding
+  req.session.save((err) => {
+    if (err) {
+      console.error('[auth] Session save error:', err);
+      return res.status(500).json({ message: 'Error saving session.' });
+    }
+    console.log(`[auth] User ${req.user.googleId} set username to: ${username}`);
+    saveUsersToFile();
+    res.status(200).json({ message: 'Username saved successfully!' });
+  });
+});
 
 // ============================================================================
 // --- SOCKET.IO EVENT HANDLERS ---
 // ============================================================================
-// Handles client lifecycle:
-//  - On connection: send initial state (text, live feed, next tick)
-//  - On wordSubmitted: validate, register/update submission, broadcast live feed
-//  - On disconnect: remove pending submission and broadcast live feed
+
+/**
+ * wrap
+ * ----
+ * A helper function to adapt Express middleware for use with Socket.IO.
+ * @param {Function} middleware - The Express middleware to adapt.
+ */
+const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
+
+// Share the Express session and Passport context with Socket.IO
+io.use(wrap(sessionMiddleware));
+io.use(wrap(passport.initialize()));
+io.use(wrap(passport.session()));
+
+/**
+ * io.on('connection', ...)
+ * ------------------------
+ * Handles the main lifecycle of a client's real-time connection.
+ */
 io.on('connection', (socket) => {
   console.log('A user connected');
+
+  // Get the user object from the socket's handshake request.
+  // This is available because of the middleware we just added.
+  const user = socket.request.user;
+
+  // Send the initial state of the application to the newly connected client.
   socket.emit('initialState', { currentText, liveSubmissions: getLiveFeedState(), nextTickTimestamp });
+
+  /**
+   * socket.on('wordSubmitted', ...)
+   * -------------------------------
+   * Handles a word submission from a client. It validates the user's
+   * authentication status and the word itself before adding it to the live feed.
+   */
   socket.on('wordSubmitted', (wordData) => {
+    // First, check if a user is logged in.
+    const user = socket.request.user;
+    if (!user) {
+      socket.emit('submissionFailed', { message: 'You must be logged in to submit a word.' });
+      return;
+    }
+
+    // Ensure the user has a username.
+    if (!user.username) {
+        socket.emit('submissionFailed', { message: 'Username not set.' });
+        return;
+    }
+
+    // Validate the submitted word format.
     const validation = validateSubmission(wordData.word);
     if (!validation.valid) {
       socket.emit('submissionFailed', { message: validation.reason });
       return;
     }
 
-    // If a human submits a word, interrupt the bot's planned sentence.
+    // If a human submits, clear any planned sentence from the bot.
     if (botQueue.length > 0) {
       console.log('[Bot] Human intervention detected. Clearing planned sentence.');
       botQueue = [];
     }
 
-    // Create a new submission object
+    // Create the submission object using the logged-in user's display name.
     const submission = {
       word: wordData.word,
       styles: wordData.styles,
-      username: constants.ANONYMOUS_NAME // All human players are anonymous for now
+      username: user.username // Use the name from the session.
     };
-    submissionsBySocketId.set(socket.id, submission);
+    submissionsByUserId.set(user.googleId, submission);
     io.emit('liveFeedUpdated', getLiveFeedState());
   });
+
+  /**
+   * socket.on('disconnect', ...)
+   * ----------------------------
+   * Cleans up when a user disconnects by removing their pending word submission.
+   */
   socket.on('disconnect', () => {
     console.log('A user disconnected');
-    if (submissionsBySocketId.has(socket.id)) {
-      submissionsBySocketId.delete(socket.id);
-      io.emit('liveFeedUpdated', getLiveFeedState());
-    }
   });
 });
+
 
 // ============================================================================
 // --- SERVER LISTEN ---
@@ -1059,6 +1420,7 @@ io.on('connection', (socket) => {
  * the main server listener.
  */
 async function startServer() {
+  await loadUsersFromFile();
   await loadInitialTextFromHistory();
   server.listen(PORT, () => {
     console.log(`snTnz server is running at http://localhost:${PORT}`);

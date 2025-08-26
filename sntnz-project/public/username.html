@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choose a Username - snTnz</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <h1 class="site-title">snTnz</h1>
+    <h2>One last step...</h2>
+    <p>Please choose a username to join the story.</p>
+
+    <form id="usernameForm" class="submission-area" style="margin-top: 20px;">
+        <input id="usernameInput"
+               placeholder="Choose a username"
+               autocomplete="off"
+               maxlength="20" />
+        <button type="submit">Save</button>
+    </form>
+
+    <div id="feedbackMessage" class="feedback-message" style="margin-top: 15px;"></div>
+  </div>
+
+  <script type="module" src="/ui.js"></script>
+  <script type="module" src="/client.js"></script>
+</body>
+</html>

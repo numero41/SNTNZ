@@ -17,7 +17,16 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;200;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="content-page"> <main class="container">
+  <!-- =========================================================
+        HEADER AND LOGIN
+  ========================================================== -->
+  <header class="site-header">
+    <div class="header-title-wrapper">
+      <h1 class="site-title">snTnz</h1>
+    </div>
+    <div id="userStatus"></div>
+  </header>
 
   <main class="container">
     <div class="main-content">
@@ -25,9 +34,6 @@
       <!-- =========================================================
            TITLE + HEADLINE
       ========================================================== -->
-      <section class="header-section">
-        <h1 class="site-title">snTnz</h1>
-      </section>
       <button id="btnInfo" class="headline info-btn">Write History, Together. [?]</button>
 
       <!-- =====================================================================
@@ -111,7 +117,7 @@
         </ul>
 
         <p>
-          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>) will contribute a word if no one else has made a suggestion during a round. Its suggestions appear in the live feed and can be voted on just like any other submission.
+          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>) will contribute a word if no one else has made a suggestion during 60 minutes. Its suggestions appear in the live feed and can be voted on just like any other submission.
         </p>
 
         <p>
@@ -134,6 +140,7 @@
   </footer>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  <script type="module" src="/ui.js"></script>
+  <script type="module" src="/client.js"></script>
 </body>
 </html>

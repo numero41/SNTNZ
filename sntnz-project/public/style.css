@@ -20,7 +20,7 @@
   --font-main: 'IBM Plex Mono', monospace;
   --font-weight-light: 100;
   --font-weight-regular: 400;
-  --font-weight-bold: 700;
+  --font-weight-bold: 600;
 
   /* Sizing */
   --spacing-base: 1rem;
@@ -60,14 +60,16 @@ body {
   font-size: 1rem;
   background-color: var(--color-white);
   color: var(--color-black);
-  margin-right: var(--main-margin);
-  margin-left: var(--main-margin);
-  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.content-page {
   display: flex;
   flex-direction: column;
   align-items: center;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  margin-right: var(--main-margin);
+  margin-left: var(--main-margin);
 }
 
 /* Shared horizontal padding for main zones */
@@ -83,13 +85,13 @@ body {
 /* Container (page wrapper) */
 .container {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   gap: calc(var(--spacing-base) * 2);
+  padding-top: 30px;
   width: 100%;
   max-width: 1200px;
-  padding-left: max(var(--page-gutter), env(safe-area-inset-left));
-  padding-right: max(var(--page-gutter), env(safe-area-inset-right));
 }
 
 /* Main content column */
@@ -109,6 +111,48 @@ body {
   border-top: var(--border-light);
   text-align: center;
   overflow-y: auto;
+}
+
+/* =====================================================================
+   --- SITE HEADER ---
+===================================================================== */
+.site-header {
+  /* Fix the header to the top of the viewport */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem var(--page-gutter);
+  background-color: var(--color-white);
+  border-bottom: var(--border-light);
+  z-index: 100;
+  box-sizing: border-box;
+}
+
+.site-header .site-title {
+  margin: 0;
+}
+
+/* Style the login/logout link inside the #userStatus container */
+#userStatus a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  color: var(--color-black);
+  transition: all 0.2s ease;
+}
+
+#userStatus a:hover {
+  background-color: var(--color-grey1);
+}
+
+#userStatus svg {
+  width: 20px;
+  height: 20px;
 }
 
 /* ============================================================================
@@ -137,7 +181,6 @@ body {
   font-weight: var(--font-weight-regular);
   min-height: 200px;
   min-width: 200px;
-  width: 100%;
 }
 
 /* Scrollable variant of the text block */
@@ -200,6 +243,11 @@ body {
   color: var(--color-grey1);
   font-style: italic;
   cursor: default;
+}
+
+.word-submit-details {
+  color: var(--color-grey2);
+  font-style: italic;
 }
 
 /* ============================================================================
@@ -476,6 +524,34 @@ body {
     overflow-y: auto;
   }
 }
+
+/* =====================================================================
+   --- LOGIN PAGE ---
+===================================================================== */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-container {
+  max-width: 400px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.login-btn {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 5px;
+  background-color: var(--color-black);
+  color: var(--color-white);
+  text-decoration: none;
+  font-weight: bold;
+  margin-top: 20px;
+}
+
 /* =====================================================================
    --- HISTORY PAGE ---
 ===================================================================== */
@@ -509,7 +585,7 @@ body {
 .history-text-block {
   font-family: var(--font-main);
   line-height: 1.8;
-  font-weight: var(--font-weight-light);
+  font-weight: var(--font-weight-regular);
   text-align: justify;
 }
 .word {

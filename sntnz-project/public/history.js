@@ -123,7 +123,6 @@
    * renderPagination
    * ----------------
    * Renders the pagination links at the bottom of the page.
-   * (This function remains unchanged from your original file)
    */
   function renderPagination(dates, currentDate) {
      if (dates.length <= 3) {
@@ -169,17 +168,22 @@
         const data = wordSpan.dataset;
         const date = new Date(parseInt(data.ts));
 
-        // Format date and time separately
-        const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-        const timeString = date.toLocaleTimeString();
+      // Get local time string
+      const localTimeString = date.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      });
 
-        // 1. Populate the tooltip's content
-        tooltip.innerHTML = `
-          <strong>Author:</strong> ${data.username}<br>
-          <strong>Date:</strong> ${dateString}<br>
-          <strong>Time:</strong> ${timeString}<br>
-          <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
-        `;
+      // Get UTC time string
+      const utcTimeString = date.toUTCString();
+
+      // Populate the tooltip's content
+      tooltip.innerHTML = `
+        <strong>Author:</strong> ${data.username}<br>
+        <strong>Time (Local):</strong> ${localTimeString}<br>
+        <strong>Time (UTC):</strong> ${utcTimeString}<br>
+        <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
+      `;
 
         // 2. Get dimensions
         const tooltipWidth = tooltip.offsetWidth;
@@ -239,7 +243,6 @@
       // --- Copy Hash Logic (remains the same) ---
       const hashSpan = e.target.closest('.chunk-hash');
       if (hashSpan) {
-        // ... (your existing copy hash logic is correct)
         const fullHash = hashSpan.dataset.hash;
         await navigator.clipboard.writeText(fullHash);
         const originalText = hashSpan.textContent;
