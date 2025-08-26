@@ -16,6 +16,7 @@ const fsPromises = require('fs').promises;  // Promise-based fs APIs (readFile, 
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const connectedUsers = new Map();
 
 // Google Generative AI SDK (Gemini)
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -57,19 +58,26 @@ const path = require('path');
 const constants = require('./constants');
 const profanityFilter = new Filter();
 
-// Use local path from .env for development, otherwise default to Render's path
-const dataDir = process.env.LOCAL_DATA_PATH || '/var/data';
+// Use the Render disk path on Render, otherwise use the local path from .env
+const dataDir = process.env.RENDER === 'true'
+  ? '/var/data'
+  : process.env.LOCAL_DATA_PATH;
+
+// Add a check to ensure a path is configured
+if (!dataDir) {
+  console.error("FATAL ERROR: No data directory path. Set LOCAL_DATA_PATH in .env for local dev.");
+  process.exit(1); // Exit if no path is found
+}
 
 console.log(`[Storage] Using data directory: ${dataDir}`);
 
 const historyDir = path.join(dataDir, 'history');
 const usersFilePath = path.join(dataDir, 'users.json');
 
-// --- ENSURE DIRECTORIES EXIST ON STARTUP ---
-// This prevents errors if the app starts with an empty disk or folder.
+// Ensure directories exist on startup
 if (!fs.existsSync(historyDir)) {
   fs.mkdirSync(historyDir, { recursive: true });
-  console.log(`[Storage] Created persistent storage directory: ${historyDir}`);
+  console.log(`[Storage] Created storage directory: ${historyDir}`);
 }
 
 // ============================================================================
@@ -1364,6 +1372,16 @@ io.on('connection', (socket) => {
   // Get the user object from the socket's handshake request.
   // This is available because of the middleware we just added.
   const user = socket.request.user;
+
+  // Track the user if they are logged in
+  if (user && user.username) {
+    connectedUsers.set(socket.id, {
+      username: user.username,
+      googleId: user.googleId,
+    });
+    // Broadcast the new user list to everyone
+    io.emit('userListUpdated', Array.from(connectedUsers.values()));
+  }
 
   // Send the initial state of the application to the newly connected client.
   socket.emit('initialState', { currentText, liveSubmissions: getLiveFeedState(), nextTickTimestamp });
