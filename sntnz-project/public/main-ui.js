@@ -6,6 +6,8 @@
 // response to server events and user actions.
 // ============================================================================
 
+import { addTooltipEvents } from './shared-ui.js';
+
 // --- MODULE STATE ---
 let socket = null;
 let CFG = null;
@@ -20,8 +22,6 @@ let currentUser = { loggedIn: false, username: null };
 // --- DOM ELEMENT REFERENCES ---
 const currentTextContainer = document.getElementById('currentTextContainer');
 const currentTextWrapper = document.getElementById('currentTextWrapper');
-const usernameForm = document.getElementById('usernameForm');
-const usernameInput = document.getElementById('usernameInput');
 const btnUp = document.getElementById('btnScrollUp');
 const btnDown = document.getElementById('btnScrollDown');
 const btnCurrent = document.getElementById('btnScrollCurrent');
@@ -35,8 +35,8 @@ const feedbackMessage = document.getElementById('feedbackMessage');
 const tooltip = document.getElementById('wordTooltip');
 const btnInfo = document.getElementById('btnInfo');
 const infoModal = document.getElementById('infoModal');
-const modalOverlay = infoModal.querySelector('.modal-overlay');
-const modalClose = infoModal.querySelector('.modal-close');
+const modalOverlay = infoModal ? infoModal.querySelector('.modal-overlay') : null;
+const modalClose = infoModal ? infoModal.querySelector('.modal-close') : null;
 
 // ============================================================================
 // --- INITIALIZATION ---
@@ -51,10 +51,9 @@ export function init(socketInstance, config) {
   socket = socketInstance;
   CFG = config;
   addNavEvents();
-  addTooltipEvents();
+  addTooltipEvents(currentTextContainer, tooltip);
   addInfoModalEvents();
   addFormAndStyleEvents();
-  addUsernameFormEvents();
 }
 
 
@@ -369,93 +368,6 @@ function addFormAndStyleEvents() {
             wordInput.value = '';
         }
     });
-}
-
-/**
- * Adds event listeners to show a tooltip on word click.
- */
-function addTooltipEvents() {
-  currentTextContainer.addEventListener('click', (e) => {
-    const wordSpan = e.target.closest('.word');
-    if (wordSpan && tooltip) {
-      const data = wordSpan.dataset;
-      const date = new Date(parseInt(data.ts));
-      const localTimeString = date.toLocaleString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
-        hour: 'numeric', minute: '2-digit'
-      });
-      const utcTimeString = date.toUTCString();
-
-      tooltip.innerHTML = `
-        <strong>Author:</strong> ${data.username}<br>
-        <strong>Time (Local):</strong> ${localTimeString}<br>
-        <strong>Time (UTC):</strong> ${utcTimeString}<br>
-        <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)`;
-
-      const tooltipWidth = tooltip.offsetWidth;
-      const windowWidth = window.innerWidth;
-      const margin = 15;
-      let newLeft = e.pageX - (tooltipWidth / 2);
-      let newTop = e.pageY + margin;
-
-      if (newLeft < margin) newLeft = margin;
-      if (newLeft + tooltipWidth > windowWidth - margin) {
-        newLeft = windowWidth - tooltipWidth - margin;
-      }
-
-      tooltip.style.left = `${newLeft}px`;
-      tooltip.style.top = `${newTop}px`;
-      tooltip.classList.add('visible');
-    }
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.word') && tooltip) {
-      tooltip.classList.remove('visible');
-    }
-  }, true);
-}
-
-/**
- * Adds event listener for the username selection form.
- */
-function addUsernameFormEvents() {
-  // If the form doesn't exist on the page, do nothing.
-  if (!usernameForm) return;
-
-  usernameForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const username = usernameInput.value.trim();
-
-    if (!username) {
-      showFeedback("Username cannot be empty."); // Uses the existing feedback function
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/username', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        showFeedback('Username saved! Redirecting...');
-        // Redirect to the main page to reload with the new username
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 1500);
-      } else {
-        // Show the error message from the server
-        showFeedback(result.message || 'An unknown error occurred.');
-      }
-    } catch (error) {
-      console.error('Failed to set username:', error);
-      showFeedback('A network error occurred. Please try again.');
-    }
-  });
 }
 
 // ============================================================================

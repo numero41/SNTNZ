@@ -56,13 +56,22 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const path = require('path');
 const constants = require('./constants');
 const profanityFilter = new Filter();
-const dataDir = '/var/data';
+
+// Use local path from .env for development, otherwise default to Render's path
+const dataDir = process.env.LOCAL_DATA_PATH || '/var/data';
+
+console.log(`[Storage] Using data directory: ${dataDir}`);
+
 const historyDir = path.join(dataDir, 'history');
 const usersFilePath = path.join(dataDir, 'users.json');
+
+// --- ENSURE DIRECTORIES EXIST ON STARTUP ---
+// This prevents errors if the app starts with an empty disk or folder.
 if (!fs.existsSync(historyDir)) {
   fs.mkdirSync(historyDir, { recursive: true });
-  console.log(`Created persistent storage directory: ${historyDir}`);
+  console.log(`[Storage] Created persistent storage directory: ${historyDir}`);
 }
+
 // ============================================================================
 // --- GOOGLE AI SETUP ---
 // ============================================================================

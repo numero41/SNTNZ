@@ -6,7 +6,7 @@
 // functions from the dedicated ui.js module.
 // ============================================================================
 
-import * as ui from './ui.js';
+import * as ui from './main-ui.js';
 
 // ============================================================================
 // --- INITIALIZATION ---

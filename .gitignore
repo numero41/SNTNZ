@@ -1,5 +1,6 @@
 .env
 *.DS_Store
 *.mp4
-DEMO/
+/DEMO
+/local_data
 *.ndjson
