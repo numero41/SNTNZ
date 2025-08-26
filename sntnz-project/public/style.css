@@ -285,7 +285,7 @@ body {
 }
 
 /* Primary submit button */
-#submitButton {
+.submit-button {
   font-family: inherit;
   font-size: 1rem;
   font-feature-settings: "tnum";
@@ -301,14 +301,14 @@ body {
 
 /* Submit button hover (pointer devices) */
 @media (hover: hover) {
-  #submitButton:hover {
+  .submit-button:hover {
     background-color: var(--color-black);
     color: var(--color-white);
   }
 }
 
 /* Submit button active/press state */
-#submitButton:active {
+.submit-button:active {
   transform: scale(0.9);
   background-color: var(--color-grey3);
 }
