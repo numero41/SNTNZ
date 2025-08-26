@@ -59,13 +59,11 @@ const constants = require('./constants');
 const profanityFilter = new Filter();
 
 // Use the Render disk path on Render, otherwise use the local path from .env
-const dataDir = process.env.RENDER === 'true'
-  ? '/var/data'
-  : process.env.LOCAL_DATA_PATH;
+const dataDir = process.env.DATA_PATH;
 
 // Add a check to ensure a path is configured
 if (!dataDir) {
-  console.error("FATAL ERROR: No data directory path. Set LOCAL_DATA_PATH in .env for local dev.");
+  console.error("FATAL ERROR: No data directory path. Set DATA_PATH in .env.");
   process.exit(1); // Exit if no path is found
 }
 
