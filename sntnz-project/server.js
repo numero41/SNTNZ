@@ -1471,11 +1471,29 @@ async function startServer() {
  * process.on('SIGINT',  () => shutdown('SIGINT'));
  * process.on('SIGTERM', () => shutdown('SIGTERM'));
  */
-function shutdown(sig){
+function shutdown(sig) {
   console.log(`[shutdown] ${sig} received`);
+
   io.close(() => console.log('[shutdown] sockets closed'));
-  server.close(() => { console.log('[shutdown] http closed'); process.exit(0); });
-  setTimeout(() => { console.warn('[shutdown] forcing exit'); process.exit(1); }, 10_000);
+
+  server.close(async () => {
+    console.log('[shutdown] http closing...');
+    try {
+      await finalizeAndSaveChunk();
+      console.log('[shutdown] Final history chunk saved successfully.');
+    } catch (err) {
+      console.error('[shutdown] Error saving final history chunk:', err);
+    } finally {
+      console.log('[shutdown] Exiting process.');
+      process.exit(0);
+    }
+  });
+
+  // A timeout to force exit if graceful shutdown hangs
+  setTimeout(() => {
+    console.warn('[shutdown] Graceful shutdown timed out. Forcing exit.');
+    process.exit(1);
+  }, 10000); // 10 seconds
 }
 process.on('SIGINT',  () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

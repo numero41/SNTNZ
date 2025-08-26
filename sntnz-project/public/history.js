@@ -6,6 +6,7 @@
  */
 
 import * as ui from './history-ui.js';
+let currentDayHistory = [];
 
 (async function() {
   // --- DOM Element References ---
