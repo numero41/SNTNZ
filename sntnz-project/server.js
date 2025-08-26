@@ -30,6 +30,10 @@ const pinoHttp = require('pino-http');
 const app = express();
 const server = http.createServer(app);
 
+// Make shutdowns snappier under load (optional)
+server.keepAliveTimeout = 5000;
+server.headersTimeout = 7000;
+
 // Trust proxy when behind nginx/caddy/etc.
 if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
 
@@ -98,51 +102,11 @@ let historyBuffer = [];
 let characterCount = 0;
 let lastBotPostTimestamp = 0;
 let users = new Map();
+let shuttingDown = false;
 
 // ============================================================================
 // --- HELPER FUNCTIONS ---
 // ============================================================================
-/**
- * loadInitialTextFromHistory
- * --------------------------
- * Reads the latest entries from today's history file to pre-populate
- * the current text when the server starts.
- */
-async function loadInitialTextFromHistory() {
-  console.log('[history] Loading initial text from archive...');
-  try {
-    const file = dayFilePath(Date.now());
-    await fsPromises.access(file); // Check if the file exists
-
-    const data = await fsPromises.readFile(file, 'utf8');
-    const lines = data.trim().split('\n').filter(Boolean);
-    if (lines.length === 0) {
-      console.log('[history] History file is empty.');
-      return;
-    }
-
-    // Extract words from chunks, then take the last N words.
-    const allWordsFromChunks = lines
-      .map(line => JSON.parse(line))
-      .filter(chunk => chunk && Array.isArray(chunk.words)) // Ensure it's a valid chunk
-      .flatMap(chunk => chunk.words); // Flatten all 'words' arrays into one
-
-    // Take the last N words for the initial state.
-    currentText = allWordsFromChunks.slice(-constants.CURRENT_TEXT_LENGTH);
-
-    console.log(`[history] Successfully loaded ${currentText.length} words.`);
-    // Also populate the bot context from this loaded history
-    currentText.forEach(w => pushBotContext(w.word));
-
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      console.log('[history] No history file for today. Starting with a blank slate.');
-    } else {
-      console.error('[history] Failed to load initial text:', error);
-    }
-  }
-}
-
 /**
  * getLiveFeedState
  * -----------------
@@ -855,6 +819,51 @@ async function finalizeAndSaveChunk() {
 }
 
 /**
+ * finalizeAndSaveChunkSync
+ * ------------------------
+ * Synchronous fallback to persist the current history buffer when the process
+ * is being terminated and async I/O may not complete in time.
+ * - Writes the same shape as finalizeAndSaveChunk()
+ * - Resets the in-memory buffer like the async version
+ *
+ * @returns {void}
+ *
+ * @example
+ * finalizeAndSaveChunkSync();
+ */
+function finalizeAndSaveChunkSync() {
+  try {
+    if (historyBuffer.length === 0) return;
+
+    // Build canonical payload (same as async version)
+    const dataToHash = JSON.stringify(historyBuffer);
+    const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
+    const chunkText = historyBuffer.map(w => w.word).join(' ');
+
+    const chunkObject = {
+      ts: historyBuffer[0].ts,
+      hash: hash,
+      text: chunkText,
+      words: [...historyBuffer], // full word data for rich rendering
+    };
+
+    // Ensure directory exists and append synchronously
+    ensureHistoryDir();
+    const file = dayFilePath(chunkObject.ts);
+    const line = JSON.stringify(chunkObject) + '\n';
+    fs.appendFileSync(file, line, 'utf8');
+
+    // Reset buffers (mirror async behavior)
+    historyBuffer = [];
+    characterCount = 0;
+
+    console.log(`[history] Sync-saved final chunk ${hash.substring(0, 7)}`);
+  } catch (err) {
+    console.error('[history] Sync save failed:', err);
+  }
+}
+
+/**
  * addWordToHistoryBuffer
  * ----------------------
  * Adds a winning word to the history buffer and finalizes a chunk if full.
@@ -1460,42 +1469,70 @@ async function startServer() {
  * shutdown
  * --------
  * Gracefully stops the server when an OS signal is received.
- * - Stops accepting new HTTP connections.
- * - Closes all Socket.IO connections.
- * - Forces exit after 10s if cleanup hangs.
+ * - Stops accepting new HTTP connections and closes Socket.IO.
+ * - Immediately attempts to persist any pending history.
+ * - Uses async finalize with a short timeout, then sync fallback if needed.
+ * - Forces exit after a safety window if cleanup hangs.
  *
  * @param {string} sig - Signal name (e.g., "SIGINT", "SIGTERM").
  * @returns {void}
  *
  * @example
- * process.on('SIGINT',  () => shutdown('SIGINT'));
- * process.on('SIGTERM', () => shutdown('SIGTERM'));
+ * process.once('SIGINT',  () => shutdown('SIGINT'));
+ * process.once('SIGTERM', () => shutdown('SIGTERM'));
  */
-function shutdown(sig) {
+async function shutdown(sig) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
   console.log(`[shutdown] ${sig} received`);
 
-  io.close(() => console.log('[shutdown] sockets closed'));
+  // 1) Stop taking new work as early as possible
+  try {
+    io.close(() => console.log('[shutdown] sockets closed'));
+  } catch (e) {
+    console.warn('[shutdown] io.close error:', e?.message || e);
+  }
 
-  server.close(async () => {
-    console.log('[shutdown] http closing...');
-    try {
-      await finalizeAndSaveChunk();
-      console.log('[shutdown] Final history chunk saved successfully.');
-    } catch (err) {
-      console.error('[shutdown] Error saving final history chunk:', err);
-    } finally {
-      console.log('[shutdown] Exiting process.');
-      process.exit(0);
-    }
-  });
+  try {
+    server.close(() => console.log('[shutdown] http server closed'));
+  } catch (e) {
+    console.warn('[shutdown] server.close error:', e?.message || e);
+  }
 
-  // A timeout to force exit if graceful shutdown hangs
+  // 2) Persist any partial history right away
+  try {
+    const FINALIZE_TIMEOUT_MS = 2500; // short budget before Render’s hard kill
+    await Promise.race([
+      finalizeAndSaveChunk(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('finalize-timeout')), FINALIZE_TIMEOUT_MS)),
+    ]);
+    console.log('[shutdown] Final history chunk saved (async).');
+  } catch (e) {
+    console.warn('[shutdown] Async finalize failed or timed out, using sync fallback:', e?.message || e);
+    finalizeAndSaveChunkSync();
+  }
+
+  // 3) Safety exit: allow pending closes to settle, then exit
+  const FORCE_EXIT_AFTER_MS = 25000; // stay under typical PaaS 30s kill window
   setTimeout(() => {
-    console.warn('[shutdown] Graceful shutdown timed out. Forcing exit.');
-    process.exit(1);
-  }, 10000); // 10 seconds
+    console.warn('[shutdown] Graceful shutdown timed out. Exiting.');
+    process.exit(0);
+  }, FORCE_EXIT_AFTER_MS);
 }
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+process.once('SIGINT',  () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+// Crash guards: Ensure we don't lose the current chunk on unexpected crashes.
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection:', reason);
+  try { finalizeAndSaveChunkSync(); } finally { process.exit(1); }
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException:', err);
+  try { finalizeAndSaveChunkSync(); } finally { process.exit(1); }
+});
 
 startServer();
