@@ -7,7 +7,7 @@
 
 module.exports = {
   // --- Round / sentence ---
-  ROUND_DURATION_SECONDS: 60,       // Round duration in seconds
+  ROUND_DURATION_SECONDS: 2,       // Round duration in seconds
   CURRENT_TEXT_LENGTH: 100,         // Words visible in the rolling sentence
 
   // --- Client UX ---
@@ -18,7 +18,7 @@ module.exports = {
   BOT_NAME: "SNTNZ_BOT",            // bot username
   BOT_LOOKBACK_MULTIPLIER: 1,       // bot scan
   BOT_SENTENCE_MAX_WORDS: 50,       // bot generation
-  BOT_INTERVAL_MINUTES: 0.05,          // min time between bot posts
+  BOT_INTERVAL_MINUTES: 0.02,          // min time between bot posts
   BOT_SEEDS: ["echo","neon","murmur","flux","orbit","paper","glass","river","quiet",
                "amber","stone","cloud","pulse","still","north","velvet"],
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
