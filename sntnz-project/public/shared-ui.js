@@ -6,6 +6,13 @@
  */
 
 /**
+ * shared-ui.js
+ * ------------
+ * Contains UI functions that are shared across different pages,
+ * like the main app and the history page.
+ */
+
+/**
  * Adds event listeners to a container to show a tooltip on word click.
  * @param {HTMLElement} containerElement - The element to listen for clicks on (e.g., historyContainer).
  * @param {HTMLElement} tooltipElement - The tooltip element to show/hide.
@@ -20,11 +27,22 @@ export function addTooltipEvents(containerElement, tooltipElement) {
       const data = wordSpan.dataset;
       const date = new Date(parseInt(data.ts));
 
-      const localTimeString = date.toLocaleString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
-        hour: 'numeric', minute: '2-digit'
+      // Define a shorter, consistent date/time format
+      const dateFormatOptions = {
+        year: '2-digit',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false, // Use 24-hour format
+      };
+
+      // Format both dates using the same options
+      const localTimeString = date.toLocaleString(undefined, dateFormatOptions);
+      const utcTimeString = date.toLocaleString(undefined, {
+        ...dateFormatOptions,
+        timeZone: 'UTC',
       });
-      const utcTimeString = date.toUTCString();
 
       tooltipElement.innerHTML = `
         <strong>Author:</strong> ${data.username}<br>
