@@ -123,7 +123,11 @@ let shuttingDown = false;
 function getLiveFeedState() {
   const allCurrentSubmissions = Array.from(submissionsByUserId.values());
   if (allCurrentSubmissions.length === 0) return [];
-  const voteCounts = allCurrentSubmissions.reduce((counts, submission) => {
+
+  // Sort submissions by time to reliably find the first submission for each word
+  const sortedSubmissions = allCurrentSubmissions.sort((a, b) => a.ts - b.ts);
+
+  const voteCounts = sortedSubmissions.reduce((counts, submission) => {
     const styleKey = `b:${submission.styles.bold}-i:${submission.styles.italic}-u:${submission.styles.underline}`;
     const compositeKey = `${submission.word.toLowerCase()}-${styleKey}`;
     if (!counts[compositeKey]) {
@@ -131,15 +135,24 @@ function getLiveFeedState() {
         word: submission.word,
         count: 0,
         styles: submission.styles,
-        username: submission.username
+        username: submission.username,
+        firstTs: submission.ts // Store the timestamp of the earliest submission
       };
     }
     counts[compositeKey].count++;
     return counts;
   }, {});
-  return Object.values(voteCounts).sort((a, b) => b.count - a.count);
-}
 
+  // New sorting logic with tie-breaker
+  return Object.values(voteCounts).sort((a, b) => {
+    // Primary sort: by vote count, descending
+    if (a.count !== b.count) {
+      return b.count - a.count;
+    }
+    // Secondary sort: by timestamp, ascending (earliest first)
+    return a.firstTs - b.firstTs;
+  });
+}
 /**
  * validateSubmission
  * ------------------
@@ -1465,7 +1478,8 @@ io.on('connection', (socket) => {
     const submission = {
       word: wordData.word,
       styles: wordData.styles,
-      username: username
+      username: username,
+      ts: Date.now()
     };
 
     submissionsByUserId.set(submissionId, submission);
