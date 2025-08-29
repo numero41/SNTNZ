@@ -415,17 +415,16 @@ body {
 /* Inline validation/feedback container */
 .feedback-message {
   display: none;
-  color: var(--color-error);
+  opacity: 0;
   overflow: hidden;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  padding: 10px 15px;
-  border-radius: 5px;
-  color: #fff;
+  transition: opacity 1s ease, transform 0.3s ease;
+  color: var(--color-white);
+  background-color: var(--color-white);
 }
 
 /* Coloring depending on message type */
 .feedback-info {
-  background-color: var(--color-grey3);
+  color: var(--color-grey2);
 }
 
 .feedback-warning {
@@ -433,7 +432,7 @@ body {
 }
 
 .feedback-error {
-  background-color: var(--color-error);
+  color: var(--color-error);
 }
 
 /* Visible/expanded state */

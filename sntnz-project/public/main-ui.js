@@ -417,9 +417,6 @@ function addFormAndStyleEvents() {
 
     wordForm.addEventListener('submit', (event) => {
         event.preventDefault();
-        if (!currentUser.loggedIn) {
-            showFeedback("Word will be submitted as \"anonymous\".", "info");
-        }
         const wordToSubmit = wordInput.value.trim();
         if (wordToSubmit) {
             const punctuationRegex = new RegExp(CFG.PUNCTUATION_REGEX_STRING);
