@@ -10,7 +10,8 @@
   --color-grey1: #ccc;
   --color-grey2: #808080;
   --color-grey3: #333;
-  --color-error: #e74c3c;
+  --color-warning: #e7a33c;
+  --color-error: #e63420;
 
   /* App roles derived from palette */
   --color-secondary: var(--color-white); /* default secondary bg for buttons/controls */
@@ -117,18 +118,17 @@ body {
    --- SITE HEADER ---
 ===================================================================== */
 .site-header {
-  /* Fix the header to the top of the viewport */
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end; /* This is the changed line */
   padding: 0.5rem var(--page-gutter);
   background-color: var(--color-white);
   border-bottom: var(--border-light);
-  z-index: 100;
+  z-index: 99;
   box-sizing: border-box;
 }
 
@@ -137,20 +137,23 @@ body {
 }
 
 /* Style the login/logout link inside the #userStatus container */
-#userStatus a {
+.user-status a {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0px 10px;
   text-decoration: none;
   color: var(--color-black);
+  height: var(--button-small-size);
   transition: all 0.2s ease;
 }
 
-#userStatus a:hover {
+.user-status a:hover {
   background-color: var(--color-grey1);
 }
 
-#userStatus svg {
+.user-status a svg,
+.user-status svg {
   width: 20px;
   height: 20px;
 }
@@ -325,7 +328,8 @@ body {
 .style-btn {
   font-family: inherit;
   font-size: 0.9rem;
-  background-color: var(--color-secondary);
+  color: var(--color-black);
+  background-color: var(--color-white);
   border: var(--border-light);
   border-radius: var(--border-radius);
   width: var(--button-small-size);
@@ -344,9 +348,12 @@ body {
   border-color: var(--color-black);
 }
 .style-btn.active {
+  color: var(--color-white);
+  background-color: var(--color-black);
   border-color: var(--color-black);
   border-width: var(--border-width);
 }
+
 
 /* =====================================================================
    --- NAV BUTTONS ---
@@ -410,7 +417,23 @@ body {
   display: none;
   color: var(--color-error);
   overflow: hidden;
-  transition: max-height 0.25s ease, margin-top 0.25s ease, opacity 0.2s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  padding: 10px 15px;
+  border-radius: 5px;
+  color: #fff;
+}
+
+/* Coloring depending on message type */
+.feedback-info {
+  background-color: var(--color-grey3);
+}
+
+.feedback-warning {
+  color: var(--color-warning);
+}
+
+.feedback-error {
+  background-color: var(--color-error);
 }
 
 /* Visible/expanded state */
@@ -523,6 +546,50 @@ body {
     /* Add a vertical scrollbar only if the content overflows */
     overflow-y: auto;
   }
+}
+
+/* =====================================================================
+   --- USER DROP DOWN ---
+===================================================================== */
+.user-menu-container {
+  position: relative;
+  display: inline-block;
+  z-index: 101;
+}
+
+.user-dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 5px;
+  background-color: var(--color-white);
+  min-width: 100px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  border: var(--border-light);
+  border-radius: var(--border-radius);
+}
+
+.user-dropdown-content a {
+  color: var(--color-black);
+  padding: 5px;
+  text-decoration: none;
+  display: block;
+  align-content: center;
+  text-align: center;
+}
+
+.user-dropdown-content a:hover {
+  background-color: var(--color-grey1);
+}
+
+.user-dropdown-content a#deleteAccountBtn {
+  color: var(--color-error);
+}
+
+/* Class to show the dropdown */
+.show-dropdown {
+  display: block;
 }
 
 /* =====================================================================

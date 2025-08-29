@@ -35,6 +35,7 @@ const feedbackMessage = document.getElementById('feedbackMessage');
 const tooltip = document.getElementById('wordTooltip');
 const btnInfo = document.getElementById('btnInfo');
 const infoModal = document.getElementById('infoModal');
+const userStatusEl = document.getElementById('userStatus');
 const modalOverlay = infoModal ? infoModal.querySelector('.modal-overlay') : null;
 const modalClose = infoModal ? infoModal.querySelector('.modal-close') : null;
 
@@ -204,9 +205,10 @@ export function updateTimerDisplay(seconds) {
 
 /**
  * Fetches user data and updates the UI to show login/logout status.
+ * For logged-in users, it creates a dropdown with logout and delete options.
  */
 export async function updateUserStatus() {
-  const userStatusEl = document.getElementById('userStatus');
+  const userStatusEl = document.getElementById('userStatus'); // Moved declaration to the top
   if (!userStatusEl) return;
 
   try {
@@ -215,10 +217,62 @@ export async function updateUserStatus() {
     currentUser = user;
 
     const loginIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M11 7L9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"></path></svg>`;
-    const logoutIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"></path></svg>`;
+    const downArrowIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M7 10l5 5 5-5H7z"/></svg>`;
 
     if (user.loggedIn) {
-      userStatusEl.innerHTML = `<a href="/logout"><span>${user.username}</span>${logoutIcon}</a>`;
+      // Create a dropdown menu that looks like the login link
+      userStatusEl.innerHTML = `
+        <div class="user-menu-container">
+          <a href="#" id="userMenuBtn" role="button" aria-haspopup="true" aria-expanded="false">
+            <span>${user.username}</span>
+            ${downArrowIcon}
+          </a>
+          <div id="userDropdown" class="user-dropdown-content">
+            <a href="/logout">Logout</a>
+            <a href="#" id="deleteAccountBtn">Delete</a>
+          </div>
+        </div>
+      `;
+
+      // Add event listeners for the new dropdown
+      const menuBtn = document.getElementById('userMenuBtn');
+      const dropdown = document.getElementById('userDropdown');
+      const deleteBtn = document.getElementById('deleteAccountBtn');
+
+      menuBtn.addEventListener('click', (e) => {
+        e.preventDefault(); // Prevent link from navigating
+        e.stopPropagation();
+        const isExpanded = dropdown.classList.toggle('show-dropdown');
+        menuBtn.setAttribute('aria-expanded', isExpanded); // For accessibility
+      });
+
+      deleteBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const confirmation = "Are you sure you want to permanently delete your account? This action cannot be undone.";
+        if (window.confirm(confirmation)) {
+          try {
+            const res = await fetch('/api/user', { method: 'DELETE' });
+            if (res.ok) {
+              alert('Account deleted successfully.');
+              window.location.href = '/'; // Redirect to home page
+            } else {
+              const error = await res.json();
+              alert(`Error: ${error.message}`);
+            }
+          } catch (err) {
+            alert('An error occurred. Please try again.');
+          }
+        }
+      });
+
+      // Close dropdown if user clicks anywhere else
+      window.addEventListener('click', (e) => {
+        if (!menuBtn.contains(e.target)) {
+          dropdown.classList.remove('show-dropdown');
+          menuBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+
     } else {
       userStatusEl.innerHTML = `<a href="/login.html"><span>Login</span>${loginIcon}</a>`;
     }
@@ -231,10 +285,20 @@ export async function updateUserStatus() {
 /**
  * Displays a temporary feedback message to the user.
  * @param {string} message - The feedback message to display.
+ * @param {('info'|'warning'|'error')} [type='info'] - The type of message, for styling.
  */
-export function showFeedback(message) {
+export function showFeedback(message, type = 'info') {
   feedbackMessage.textContent = message;
+
+  // Reset classes and apply the new one for coloring
+  feedbackMessage.classList.remove('visible', 'feedback-info', 'feedback-warning', 'feedback-error');
+  feedbackMessage.classList.add(`feedback-${type}`);
+
+  // Use a reflow trick to restart the animation if the message is already visible
+  void feedbackMessage.offsetWidth;
+
   feedbackMessage.classList.add('visible');
+
   clearTimeout(feedbackTimeout);
   feedbackTimeout = setTimeout(() => {
     feedbackMessage.classList.remove('visible');
@@ -354,14 +418,13 @@ function addFormAndStyleEvents() {
     wordForm.addEventListener('submit', (event) => {
         event.preventDefault();
         if (!currentUser.loggedIn) {
-            showFeedback("You must be logged in to submit a word.");
-            return;
+            showFeedback("Word will be submitted as \"anonymous\".", "info");
         }
         const wordToSubmit = wordInput.value.trim();
         if (wordToSubmit) {
             const punctuationRegex = new RegExp(CFG.PUNCTUATION_REGEX_STRING);
             if (!punctuationRegex.test(wordToSubmit)) {
-                showFeedback("Invalid format. Please submit a single, word-like token without spaces and optional punctuation.");
+                showFeedback("Invalid format. Please submit a single, word-like token without spaces and optional punctuation.", "warning");
                 return;
             }
             socket.emit('wordSubmitted', { word: wordToSubmit, styles: selectedStyles });

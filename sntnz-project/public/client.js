@@ -94,5 +94,5 @@ socket.on('currentTextUpdated', (newCurrentText) => {
  * Fired if the server rejects a user's word submission.
  */
 socket.on('submissionFailed', (data) => {
-  ui.showFeedback(data.message);
+  ui.showFeedback(data.message, "error");
 });

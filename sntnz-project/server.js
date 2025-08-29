@@ -1351,6 +1351,46 @@ app.post('/api/username', (req, res) => {
   });
 });
 
+/**
+ * DELETE /api/user
+ * ----------------
+ * Allows a logged-in user to permanently delete their account.
+ */
+app.delete('/api/user', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: 'You must be logged in to delete your account.' });
+  }
+
+  const { googleId } = req.user;
+  try {
+    // Remove the user from the in-memory map
+    if (users.has(googleId)) {
+      users.delete(googleId);
+      await saveUsersToFile(); // Persist the change
+      console.log(`[auth] User account deleted: ${googleId}`);
+    }
+
+    // Log the user out completely
+    req.logout((err) => {
+      if (err) {
+        console.error('[auth] Logout error during account deletion:', err);
+        // Continue to destroy session even if logout has an error
+      }
+      req.session.destroy((err) => {
+        if (err) {
+          console.error('[auth] Session destruction error during account deletion:', err);
+          return res.status(500).json({ message: 'Error clearing session.' });
+        }
+        res.clearCookie('connect.sid');
+        res.status(200).json({ message: 'Account deleted successfully.' });
+      });
+    });
+  } catch (err) {
+    console.error('[auth] Error during account deletion:', err);
+    res.status(500).json({ message: 'An internal error occurred while deleting the account.' });
+  }
+});
+
 // ============================================================================
 // --- SOCKET.IO EVENT HANDLERS ---
 // ============================================================================
@@ -1398,27 +1438,22 @@ io.on('connection', (socket) => {
    * -------------------------------
    * Handles a word submission from a client. It validates the user's
    * authentication status and the word itself before adding it to the live feed.
+   * If the user is not logged in, the submission is attributed to "anonymous".
    */
   socket.on('wordSubmitted', (wordData) => {
-    // First, check if a user is logged in.
-    const user = socket.request.user;
-    if (!user) {
-      socket.emit('submissionFailed', { message: 'You must be logged in to submit a word.' });
-      return;
-    }
-
-    // Ensure the user has a username.
-    if (!user.username) {
-        socket.emit('submissionFailed', { message: 'Username not set.' });
-        return;
-    }
-
-    // Validate the submitted word format.
+    // Validate the submitted word format first.
     const validation = validateSubmission(wordData.word);
     if (!validation.valid) {
       socket.emit('submissionFailed', { message: validation.reason });
       return;
     }
+
+    // Determine the user and a unique ID for this round's submission.
+    const user = socket.request.user;
+    const isAnonymous = !user || !user.username;
+    const username = isAnonymous ? 'anonymous' : user.username;
+    // Use Google ID for logged-in users, or socket ID for anonymous ones.
+    const submissionId = isAnonymous ? socket.id : user.googleId;
 
     // If a human submits, clear any planned sentence from the bot.
     if (botQueue.length > 0) {
@@ -1426,13 +1461,14 @@ io.on('connection', (socket) => {
       botQueue = [];
     }
 
-    // Create the submission object using the logged-in user's display name.
+    // Create the submission object.
     const submission = {
       word: wordData.word,
       styles: wordData.styles,
-      username: user.username // Use the name from the session.
+      username: username
     };
-    submissionsByUserId.set(user.googleId, submission);
+
+    submissionsByUserId.set(submissionId, submission);
     io.emit('liveFeedUpdated', getLiveFeedState());
   });
 

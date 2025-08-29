@@ -27,7 +27,7 @@
     const username = usernameInput.value.trim();
 
     if (!username) {
-      showFeedback("Username cannot be empty.");
+      showFeedback('Username cannot be empty.', 'error');
       return;
     }
 
@@ -40,14 +40,14 @@
       const result = await response.json();
 
       if (response.ok) {
-        showFeedback('Username saved! Redirecting...');
+        showFeedback('Username saved! Redirecting...', 'info');
         setTimeout(() => { window.location.href = '/'; }, 1500);
       } else {
-        showFeedback(result.message || 'An unknown error occurred.');
+        showFeedback(result.message || 'An unknown error occurred.', 'error');
       }
     } catch (error) {
       console.error('Failed to set username:', error);
-      showFeedback('A network error occurred. Please try again.');
+      showFeedback('A network error occurred. Please try again.', 'error');
     }
   });
 })();
