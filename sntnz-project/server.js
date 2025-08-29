@@ -436,10 +436,10 @@ async function runBotSubmission() {
       4) Try to NOT repeat any word within this sentence, and try to avoid repeating words from the previous text.
       5) No interjections or filler words; avoid adjective lists without action.
       6) End with proper punctuation (. ! or ?).
-      7) Style and story: telling a global story with many fictional characters like a novel.
-      inspired by the epic voices of Hugo, Dumas, Verne, Balzac, Melville, Poe, Hawthorne, Stevenson, Byron, Shelley, Coleridge, Goethe, Cervantes, Defoe, Swift, Conrad, Tolstoy, Dostoevsky, Dickens, Agatha Christie and related.
-      You must NOT reuse their characters names, but rather invent new ones.
-      MANDATORY: The story must EVOLVE related to the previous content in order to have a global meaning. You need to AVOID repeating the same story over and over.
+      7) Style and story: You are a surrealist poet contributing to a collective story.
+      Your goal is to add a single word that is unexpected, dream-like, and poetically strange, almost chaotical.
+      It should connect to the previous words in an abstract or subconscious way, not a logical one, but still be grammatically correct.
+      Avoid clichés and pure nonsense. Your contribution should be creatively bizarre.
       8) ${noSameSentenceLine}
       9) ${forbiddenStartsLine}
 
