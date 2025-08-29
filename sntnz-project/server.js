@@ -6,7 +6,6 @@ require('dotenv').config();                 // Load .env file into process.env f
 const express = require('express');         // Web framework: routing, static files, JSON parsing
 const http = require('http');               // Raw Node HTTP server (Socket.IO attaches to this)
 const { Server } = require('socket.io');    // Realtime events over WebSocket (w/ graceful fallbacks)
-const Filter = require('bad-words');        // Profanity filter for user-submitted tokens
 const crypto = require('crypto');           // Hashing functions
 
 const fs = require('fs');                   // Sync/streaming file ops (createReadStream, existsSync, appendFile)
@@ -60,7 +59,8 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // ============================================================================
 const path = require('path');
 const constants = require('./constants');
-const profanityFilter = new Filter();
+const { AllProfanity } = require('allprofanity');
+const profanityFilter = new AllProfanity();
 
 // Use the Render disk path on Render, otherwise use the local path from .env
 const dataDir = process.env.DATA_PATH;
@@ -102,6 +102,7 @@ let historyBuffer = [];
 let characterCount = 0;
 let lastBotPostTimestamp = 0;
 let users = new Map();
+const anonUsage = new Map();
 let shuttingDown = false;
 
 // ============================================================================
@@ -153,6 +154,7 @@ function getLiveFeedState() {
     return a.firstTs - b.firstTs;
   });
 }
+
 /**
  * validateSubmission
  * ------------------
@@ -173,14 +175,18 @@ function validateSubmission(word) {
   if (typeof word !== 'string') return { valid: false, reason: 'Invalid input' };
   word = word.trim();
   if (word.length === 0 || word.length > constants.INPUT_MAX_CHARS) {
-    return { valid: false, reason: '1–40 chars only' };
+    return { valid: false, reason: '1–25 chars only' };
   }
   const punctuationRegex = new RegExp(constants.PUNCTUATION_REGEX_STRING);
   if (!punctuationRegex.test(word)) return { valid: false, reason: 'No spaces or misplaced punctuation' };
-  if (profanityFilter.isProfane(word)) return { valid: false, reason: 'Offensive words are not allowed' };
+
+  // If the word is profane according to EITHER filter, reject it.
+  if (profanityFilter.check(word)) {
+    return { valid: false, reason: 'Offensive words are not allowed' };
+  }
+
   return { valid: true };
 }
-
 
 /**
  * endRoundAndElectWinner
@@ -712,6 +718,18 @@ setInterval(() => {
     botFiredThisRound = false;
   }
 }, 100);
+
+// ============================================================================
+// --- Periodically clean up old entries from the anonymous usage tracker
+// ============================================================================
+setInterval(() => {
+  const oneHour = 60 * 60 * 1000;
+  for (const [ip, usage] of anonUsage.entries()) {
+    if (Date.now() - usage.firstPostTime > oneHour) {
+      anonUsage.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
 
 // ============================================================================
 // --- USERS STORAGE ---
@@ -1467,6 +1485,27 @@ io.on('connection', (socket) => {
     const username = isAnonymous ? 'anonymous' : user.username;
     // Use Google ID for logged-in users, or socket ID for anonymous ones.
     const submissionId = isAnonymous ? socket.id : user.googleId;
+
+    // Anonymous rate limiter
+    if (isAnonymous) {
+      const ip = socket.handshake.address;
+      const usage = anonUsage.get(ip);
+      const limit = constants.ANONYMOUS_MAX_SUB_PER_HOUR;
+      const oneHour = 60 * 60 * 1000;
+
+      if (usage && (Date.now() - usage.firstPostTime < oneHour)) {
+        if (usage.count >= limit) {
+          socket.emit('submissionFailed', {
+            message: `Anonymous limit reached. Please log in to continue.`
+          });
+          return; // Stop the submission
+        }
+        usage.count++;
+      } else {
+        // Start a new tracking period for this IP
+        anonUsage.set(ip, { count: 1, firstPostTime: Date.now() });
+      }
+    }
 
     // If a human submits, clear any planned sentence from the bot.
     if (botQueue.length > 0) {

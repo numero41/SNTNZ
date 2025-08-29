@@ -11,7 +11,8 @@ module.exports = {
   CURRENT_TEXT_LENGTH: 100,         // Words visible in the rolling sentence
 
   // --- Client UX ---
-  INPUT_MAX_CHARS: 40,              // Max characters in input box
+  INPUT_MAX_CHARS: 25,              // Max characters in input box
+  ANONYMOUS_MAX_SUB_PER_HOUR: 10,   // Max anonymous submissions per hour
 
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",      // Anonymous username
