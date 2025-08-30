@@ -128,23 +128,22 @@ body {
   top: 0;
   left: 0;
   width: 100%;
+  height: var(--header-height);
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  padding: 1rem var(--page-gutter);
+  align-items: baseline;
+  margin-bottom: 20px;
+  padding: 0 var(--page-gutter);
   background-color: var(--color-white);
   border-bottom: var(--border-light);
-  z-index: 200;
+  z-index: 99;
   box-sizing: border-box;
   box-shadow: 0 2px 10px var(--color-shadow);
 }
 
-.site-header .site-title {
-  margin: 0;
-}
 
 /* Style the login/logout link inside the #userStatus container */
-.user-status a {
+.header-button a {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -161,12 +160,12 @@ body {
   gap: 0.75rem;
 }
 
-.user-status a:hover {
+.header-button a:hover {
   background-color: var(--color-grey1);
 }
 
-.user-status a svg,
-.user-status svg {
+.header-button a svg,
+.header-button svg {
   width: 20px;
   height: 20px;
 }
@@ -612,11 +611,6 @@ body {
   color: var(--color-black);
 }
 
-/* Title layout adjustment when info button present */
-.site-title {
-  display: inline-block;
-  vertical-align: middle;
-}
 
 /* Media query for mobile screens */
 @media (max-width: 768px) {
