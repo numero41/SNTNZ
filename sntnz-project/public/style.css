@@ -2,7 +2,7 @@
    --- GLOBAL VARIABLES ---
 ============================================================================ */
 :root {
-  --page-gutter: clamp(16px, 5vw, 32px);
+  --page-gutter: clamp(2rem, 6vw, 80px);
 
   /* Colors (base palette) */
   --color-white: #fff;
@@ -12,10 +12,9 @@
   --color-grey3: #333;
   --color-warning: #e7a33c;
   --color-error: #e63420;
-
-  /* App roles derived from palette */
-  --color-secondary: var(--color-white); /* default secondary bg for buttons/controls */
-  --overlay-scrim: color-mix(in srgb, var(--color-black) 60%, var(--color-white) 40%); /* ≈ rgba(0,0,0,0.6) using vars */
+  --color-shadow: rgba(0, 0, 0, 0.15);
+  --color-user-highlight: #e7a33c4d;
+  --color-secondary: var(--color-white);
 
   /* Typography */
   --font-main: 'IBM Plex Mono', monospace;
@@ -31,6 +30,9 @@
 
   /* Margins */
   --main-margin: 40px;
+  --header-height: 80px;
+  --footer-height: 60px;
+  --history-footer-height: 110px;
 
   /* Borders */
   --border-width: 1px;
@@ -47,6 +49,11 @@
 /* ============================================================================
    --- GLOBAL STYLES ---
 ============================================================================ */
+
+/* Add this rule */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
 
 /* Root html baseline */
 html {
@@ -69,13 +76,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-right: var(--main-margin);
-  margin-left: var(--main-margin);
 }
 
 /* Shared horizontal padding for main zones */
-#historyContainer,
 .main-content {
+  width: 100%;
   padding-inline: var(--page-gutter);
 }
 
@@ -90,7 +95,8 @@ body {
   flex-direction: column;
   align-items: center;
   gap: calc(var(--spacing-base) * 2);
-  padding-top: 30px;
+  padding-top: var(--header-height);
+  padding-bottom: var(--footer-height);
   width: 100%;
   max-width: 1200px;
 }
@@ -124,12 +130,13 @@ body {
   width: 100%;
   display: flex;
   justify-content: space-between;
-  align-items: flex-end; /* This is the changed line */
-  padding: 0.5rem var(--page-gutter);
+  align-items: flex-end;
+  padding: 1rem var(--page-gutter);
   background-color: var(--color-white);
   border-bottom: var(--border-light);
-  z-index: 99;
+  z-index: 200;
   box-sizing: border-box;
+  box-shadow: 0 2px 10px var(--color-shadow);
 }
 
 .site-header .site-title {
@@ -146,6 +153,12 @@ body {
   color: var(--color-black);
   height: var(--button-small-size);
   transition: all 0.2s ease;
+}
+
+.title-wrapper {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
 .user-status a:hover {
@@ -182,14 +195,13 @@ body {
   line-height: 1.6;
   margin-bottom: calc(var(--spacing-base)*2);
   font-weight: var(--font-weight-regular);
-  min-height: 200px;
   min-width: 200px;
 }
 
 /* Scrollable variant of the text block */
 .current-text.scrollable{
   text-align: justify;
-  max-height: 20vh;
+  height: 200px;
   padding-right: 1rem;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -265,7 +277,7 @@ body {
 /* Text input styling */
 .submission-area input {
   flex: 1;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-family: inherit;
   padding: calc(var(--spacing-base) / 2);
   border: var(--border-light);
@@ -290,7 +302,7 @@ body {
 /* Primary submit button */
 .submit-button {
   font-family: inherit;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-feature-settings: "tnum";
   padding: calc(var(--spacing-base) / 2) calc(var(--spacing-base) * 1.5);
   border: var(--border-dark);
@@ -441,6 +453,76 @@ body {
   opacity: 1;
 }
 
+/* =========================================================
+   LIVE FEED
+========================================================== */
+#liveFeedList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.live-feed-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.vote-controls {
+  display: flex;
+  /* Use row for side-by-side layout */
+  flex-direction: row;
+  align-items: center;
+  margin-right: 10px;
+}
+
+.vote-btn {
+  background: none;
+  border: none;
+  color: var(--color-grey2);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  font-size: 14px;
+  border-radius: var(--border-radius);
+  transition: var(--transition-fast);
+}
+
+.vote-btn.active {
+  color: var(--color-black);
+}
+
+/* This rule prevents the hover effect on disabled buttons */
+.vote-btn:hover:not([disabled]) {
+  background-color: var(--color-grey1);
+  color: var(--color-black);
+}
+
+/* Disabled buttons look unclickable */
+.vote-btn:disabled {
+  color: var(--color-grey1);
+  cursor: not-allowed;
+}
+
+.vote-count {
+  font-feature-settings: "tnum"; /* For tabular numbers */
+  font-weight: var(--font-weight-bold);
+  min-width: 2ch; /* Reserve space for 2 digits */
+  text-align: center;
+  padding: 0 4px;
+  color: var(--color-grey2);
+}
+
+.word-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.word-text {
+  margin-right: 5px;
+}
+
 /* ============================================================================
    --- INFO MODAL ---
 ============================================================================ */
@@ -488,7 +570,7 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: var(--overlay-scrim);
+  background-color: var(--color-grey2);
 }
 
 /* Modal card/content */
@@ -564,7 +646,7 @@ body {
   margin-top: 5px;
   background-color: var(--color-white);
   min-width: 100px;
-  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  box-shadow: 0px 8px 16px 0px var(--color-shadow);
   border: var(--border-light);
   border-radius: var(--border-radius);
 }
@@ -589,6 +671,83 @@ body {
 /* Class to show the dropdown */
 .show-dropdown {
   display: block;
+}
+
+/* =====================================================================
+   --- CONTRIBUTOR FILTER DROPDOWN ---
+===================================================================== */
+.contributors-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--color-grey2);
+  font-size: 0.9rem;
+}
+
+.contributors-dropdown {
+  position: relative;
+  display: inline-block;
+  z-index: 101;
+}
+
+.contributors-dropdown-btn {
+  background-color: var(--color-white);
+  color: var(--color-black);
+  padding: 5px 10px;
+  font-family: var(--font-main);
+  border: 1px solid var(--color-grey1);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 120px;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.contributors-dropdown-btn:hover {
+  border-color: var(--color-black);
+}
+
+.contributors-dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 5px;
+  background-color: var(--color-white);
+  min-width: 160px;
+  box-shadow: 0px 8px 16px 0px var(--color-shadow);
+  border: var(--border-light);
+  border-radius: var(--border-radius);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.contributors-dropdown-content a {
+  color: var(--color-black);
+  padding: 8px 12px;
+  text-decoration: none;
+  display: block;
+  font-size: 0.9rem;
+}
+
+.contributors-dropdown-content a:hover {
+  background-color: var(--color-grey1);
+}
+
+.contributors-dropdown-content.show-dropdown {
+  display: block;
+}
+
+/* Style for highlighted words */
+.word.highlighted-word {
+    background-color: var(--color-user-highlight);
+    border-radius: 3px;
+    transition: background-color 0.3s ease;
 }
 
 /* =====================================================================
@@ -630,14 +789,20 @@ body {
   margin: 0;
 }
 .history-subheader {
-  color: color-mix(in srgb, var(--color-black) 60%, var(--color-white) 40%); /* ≈ #666 */
+  padding-bottom: 10px;
+  color: var(--color-grey2);
 }
 
 /* History container sizing/padding */
+/* Add this new, consolidated rule for the history page layout */
 #historyContainer {
-  width: 100%;
-  margin: var(--main-margin);
-  padding: 0 1rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding-bottom: var(--history-footer-height);
+  padding-left: var(--page-gutter);
+  padding-right: var(--page-gutter);
+  align-items: stretch;
 }
 
 /* Empty/error state text */
@@ -687,14 +852,14 @@ body {
 
 /* Pagination container and layout */
 .pagination-nav {
-  text-align: center;
-  margin: 2rem 0;
+  background-color: var(--color-white);
+  padding: 1rem 0;
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  align-items: center; /* Vertically align arrows and dates */
+  align-items: center;
   gap: 0.5rem;
-  padding-bottom: 4rem; /* Added margin below the navigation */
 }
 
 /* Pagination links (pages) */
@@ -741,7 +906,7 @@ body {
 
 /* Chunk wrapper */
 .history-chunk {
-  border-bottom: 1px dotted color-mix(in srgb, var(--color-white) 73%, var(--color-black) 27%); /* ≈ #bbb */
+  border-bottom: 1px dotted var(--color-grey2);
   padding-bottom: 1.5rem;
   margin-bottom: 1.5rem;
 }
@@ -800,22 +965,6 @@ body {
 }
 
 /* ============================================================================
-   --- SCROLLBARS ---
-============================================================================ */
-
-/* Thin scrollbar (sidebar only) */
-.sidebar::-webkit-scrollbar {
-  width: var(--scrollbar-width);
-  border: none;
-}
-.sidebar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.sidebar::-webkit-scrollbar-thumb {
-  background-color: var(--color-black);
-}
-
-/* ============================================================================
    --- ANIMATIONS ---
 ============================================================================ */
 
@@ -829,12 +978,22 @@ body {
    --- FOOTER ---
 ============================================================================ */
 
-/* Site footer (sticky to bottom via flex) */
 .site-footer {
-  margin-top: auto;
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 100%;
   text-align: center;
   font-size: 0.9rem;
-  width: 80%;
+  padding: 1rem 1rem;
   border-top: var(--border-light);
   color: var(--color-grey2);
+  background-color: var(--color-white); /* Added background to hide content scrolling underneath */
+  box-shadow: 0 -2px 10px var(--color-shadow);
+  box-sizing: border-box; /* Ensures padding is included in the element's total width and height */
+  z-index: 99; /* Ensures it stays on top of other content */
+}
+
+.site-footer p {
+  margin: 0;
 }

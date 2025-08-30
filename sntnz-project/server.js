@@ -96,7 +96,7 @@ let botQueue = [];
 // --- STATE MANAGEMENT ---
 // ============================================================================
 let currentText = [];
-let submissionsByUserId = new Map();
+let liveWords = new Map();
 let nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
 let historyBuffer = [];
 let characterCount = 0;
@@ -105,54 +105,67 @@ let users = new Map();
 const anonUsage = new Map();
 let shuttingDown = false;
 
+
 // ============================================================================
 // --- HELPER FUNCTIONS ---
 // ============================================================================
 /**
- * getLiveFeedState
- * -----------------
- * Aggregates the live submissions (per-socket) into a deduplicated, counted list
- * keyed by lowercased word + style signature. Returns the list sorted by count descending.
- *
- * @returns {Array<{word: string, count: number, styles: {bold: boolean, italic: boolean, underline: boolean}}>}
- *   The current live feed "vote" state.
- *
- * @example
- * const state = getLiveFeedState();
- * // -> [{ word: "Hello", count: 3, styles: { bold:false, italic:false, underline:false } }, ...]
+ * Creates a unique key for a word and its styles.
+ * @param {{word: string, styles: object}} wordData
+ * @returns {string} A unique composite key.
  */
-function getLiveFeedState() {
-  const allCurrentSubmissions = Array.from(submissionsByUserId.values());
-  if (allCurrentSubmissions.length === 0) return [];
+function getCompositeKey(wordData) {
+  const styleKey = `b:${!!wordData.styles.bold}-i:${!!wordData.styles.italic}-u:${!!wordData.styles.underline}-n:${!!wordData.styles.newline}`;
+  return `${wordData.word.toLowerCase()}-${styleKey}`;
+}
 
-  // Sort submissions by time to reliably find the first submission for each word
-  const sortedSubmissions = allCurrentSubmissions.sort((a, b) => a.ts - b.ts);
+/**
+ * Calculates scores and returns a sorted array for the client.
+ * @param {string} [requestingUserId] - Optional user ID to determine their vote status.
+ * @returns {Array<object>} The sorted live feed state.
+ */
+function getLiveFeedState(requestingUserId) {
+  const feed = [];
+  for (const [compositeKey, data] of liveWords.entries()) {
+    // Calculate the net score by summing the votes (1 for up, -1 for down)
+    const score = Array.from(data.votes.values()).reduce((acc, vote) => acc + vote, 0);
 
-  const voteCounts = sortedSubmissions.reduce((counts, submission) => {
-    const styleKey = `b:${submission.styles.bold}-i:${submission.styles.italic}-u:${submission.styles.underline}`;
-    const compositeKey = `${submission.word.toLowerCase()}-${styleKey}`;
-    if (!counts[compositeKey]) {
-      counts[compositeKey] = {
-        word: submission.word,
-        count: 0,
-        styles: submission.styles,
-        username: submission.username,
-        firstTs: submission.ts // Store the timestamp of the earliest submission
-      };
+    // Determine the requesting user's vote for this item
+    let userVote = null;
+    if (requestingUserId && data.votes.has(requestingUserId)) {
+      userVote = data.votes.get(requestingUserId) === 1 ? 'up' : 'down';
     }
-    counts[compositeKey].count++;
-    return counts;
-  }, {});
 
-  // New sorting logic with tie-breaker
-  return Object.values(voteCounts).sort((a, b) => {
-    // Primary sort: by vote count, descending
+    feed.push({
+      word: data.word,
+      styles: data.styles,
+      username: data.submitterName,
+      count: score,
+      ts: data.ts,
+      compositeKey: compositeKey,
+      userVote: userVote, // Add user's vote status for the client UI
+    });
+  }
+
+  // Sort by score (descending), then by submission time (ascending) as a tie-breaker
+  return feed.sort((a, b) => {
     if (a.count !== b.count) {
       return b.count - a.count;
     }
-    // Secondary sort: by timestamp, ascending (earliest first)
-    return a.firstTs - b.firstTs;
+    return a.ts - b.ts;
   });
+}
+
+/**
+ * Broadcasts the latest live feed state to all connected clients.
+ * Each client receives a personalized list showing their own votes.
+ */
+function broadcastLiveFeed() {
+    for (const [socketId, socket] of io.of("/").sockets) {
+        const user = socket.request.user;
+        const userId = user ? user.googleId : socket.id;
+        socket.emit('liveFeedUpdated', getLiveFeedState(userId));
+    }
 }
 
 /**
@@ -197,63 +210,71 @@ function validateSubmission(word) {
  * @returns {void}
  */
 function endRoundAndElectWinner() {
-  // Immediately calculate and broadcast the timestamp for the *next* round.
+  // Immediately calculate and broadcast the timestamp for the NEXT round.
+  // This ensures client-side timers remain responsive and accurate.
   nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
   io.emit('nextTick', { nextTickTimestamp });
 
-  // STEP 2: Capture the state of the round that just finished.
+  // Capture the final state of the round that just finished.
   const liveFeed = getLiveFeedState();
 
-  // STEP 3: Reset the live submission state for the new round.
-  submissionsByUserId.clear();
-  io.emit('liveFeedUpdated', []); // Tell clients to clear their live feed display.
+  // Reset the live submission state for the new round.
+  liveWords.clear();
+  broadcastLiveFeed(); // This function sends the new, empty list to all clients.
 
-  // STEP 4: Now, process the winner from the captured state.
-  const total = liveFeed.reduce((acc, item) => acc + item.count, 0);
-  let winnerRow = null;
+  // Process the winner from the captured state.
 
-if (liveFeed.length > 0) {
-    let winner = liveFeed[0];
+  // Filter for potential winners. According to the rules, a winner
+  // must have a positive score (greater than 0).
+  const potentialWinners = liveFeed.filter(item => item.count > 0);
 
-    // Capitalize if previous sentence ended with punctuation
+  // Only proceed if there is at least one valid winner.
+  if (potentialWinners.length > 0) {
+    // The winner is the first item from the sorted, filtered list.
+    let winner = potentialWinners[0];
+
+    // Calculate the total number of positive votes cast in the round for statistics.
+    const total = liveFeed.reduce((acc, item) => acc + Math.max(0, item.count), 0);
+
+    // Automatically capitalize the word if it starts a new sentence.
     if (currentText.length > 0) {
         const lastWordInSentence = currentText[currentText.length - 1].word;
-        if (/[.!?]$/.test(lastWordInSentence)) {
+        if (/[.!?]$/.test(lastWordInSentence) ) {
             winner.word = winner.word.charAt(0).toUpperCase() + winner.word.slice(1);
         }
     }
 
-    // Define all constants
-    const ts = Date.now();
-    const count = winner.count;
-    const minute = Math.floor(ts / 60000);
-    const pct = total > 0 ? (count / total) * 100 : 0;
-
-    // Create the full, consistent data object
-    winnerRow = {
-        ts,
-        minute,
+    // Create the final, structured data object for the winning word.
+    const winnerRow = {
+        ts: Date.now(),
+        minute: Math.floor(Date.now() / 60000),
         word: winner.word,
-        styles: {
-            bold: !!winner.styles.bold,
-            italic: !!winner.styles.italic,
-            underline: !!winner.styles.underline
-        },
+        styles: winner.styles,
         username: winner.username,
-        pct: Number(pct.toFixed(4)),
-        count,
-        total
+        pct: total > 0 ? (winner.count / total) * 100 : 0,
+        count: winner.count,
+        total: total
     };
 
-    // Use the single winnerRow object for both the in-memory array and the file log
+    // Update the application's persistent state with the new word.
     currentText.push(winnerRow);
     if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
 
     pushBotContext(winner.word);
     addWordToHistoryBuffer(winnerRow);
-}
+  }
 
-  // STEP 5: FINALLY, broadcast the updated text from the completed round.
+  // Check if the bot's submission was rejected to force a new sentence
+  const botSubmittedWord = liveFeed.find(item => item.username === constants.BOT_NAME);
+  const winner = potentialWinners.length > 0 ? potentialWinners[0] : null;
+
+  if (botSubmittedWord && (!winner || winner.username !== constants.BOT_NAME)) {
+    console.log('[bot] Submission was not chosen. Clearing sentence queue.');
+    botQueue = []; // This forces the bot to generate a fresh sentence next time
+  }
+
+  // Broadcast the updated story text to all clients.
+  // This is done even if there was no winner, to ensure client state remains consistent.
   io.emit('currentTextUpdated', currentText);
 }
 
@@ -333,7 +354,7 @@ function pickSeed(){
  *
  * @example
  * await runBotSubmission();
- * // -> Emitted 'liveFeedUpdated' with the bot's token added to submissionsByUserId
+ * // -> Emitted 'liveFeedUpdated' with the bot's token
  */
 async function runBotSubmission() {
   //========================================
@@ -345,13 +366,21 @@ async function runBotSubmission() {
     const planned = botQueue.shift();
     botPlannedToken = planned;
 
-    const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-    submissionsByUserId.set(botKey, {
+    const botWordData = {
       word: planned,
-      styles: { bold: false, italic: false, underline: false },
-      username: constants.BOT_NAME
-    });
-    io.emit('liveFeedUpdated', getLiveFeedState());
+      styles: { bold: false, italic: false, underline: false, newline: false }
+    };
+    const compositeKey = getCompositeKey(botWordData);
+    if (!liveWords.has(compositeKey)) {
+        liveWords.set(compositeKey, {
+            ...botWordData,
+            submitterId: 'sntnz_bot',
+            submitterName: constants.BOT_NAME,
+            ts: Date.now(),
+            votes: new Map([['sntnz_bot', 1]]) // Bot's own upvote
+        });
+    }
+    broadcastLiveFeed();
     return;
   }
 
@@ -567,15 +596,23 @@ async function runBotSubmission() {
   }
 
   // Submit like a normal user
-  const botKey = `bot_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-  submissionsByUserId.set(botKey, {
-    word,
-    styles: { bold: false, italic: false, underline: false },
-    username: constants.BOT_NAME
-  });
+  const botWordData = {
+    word: word,
+    styles: { bold: false, italic: false, underline: false, newline: false }
+  };
+  const compositeKey = getCompositeKey(botWordData);
+  if (!liveWords.has(compositeKey)) {
+      liveWords.set(compositeKey, {
+          ...botWordData,
+          submitterId: 'sntnz_bot',
+          submitterName: constants.BOT_NAME,
+          ts: Date.now(),
+          votes: new Map([['sntnz_bot', 1]]) // Bot's own upvote
+      });
+  }
 
   // Broadcast the refreshed live feed
-  io.emit('liveFeedUpdated', getLiveFeedState());
+  broadcastLiveFeed();
 }
 
 // ============================================================================
@@ -701,7 +738,7 @@ setInterval(() => {
   const botPostInterval = constants.BOT_INTERVAL_MINUTES * 60 * 1000; // 1 hour in milliseconds
   const canBotPost = now - lastBotPostTimestamp > botPostInterval;
 
-  if (canBotPost && !botFiredThisRound && submissionsByUserId.size === 0) {
+  if (canBotPost && !botFiredThisRound && liveWords.size === 0) {
     if (remCeil === (halfSec)) {
       runBotSubmission();
       botFiredThisRound = true;
@@ -1009,7 +1046,7 @@ app.get('/api/history/before', async (req, res) => {
   }
 
   // Keep searching backwards day-by-day until we find enough older words
-  for (let i = 0; i < 365; i++) { // Limit search to 1 year
+  for (let i = 0; i < 2; i++) { // Limit search to 5 days back
     const wordsFromFile = await collectWordsFromFile(dayFilePath(cursorTs));
 
     // Find words in this file that are ACTUALLY older than our timestamp
@@ -1210,7 +1247,7 @@ app.use(
         "script-src": [
           "'self'",
           "https://www.googletagmanager.com",
-          "'sha256-GgZ3hhZKwUu/qF2+i/fRQjMZt6bwv8t41R8t9vHbIJE='", // Your inline script
+          "'sha256-OA2+WwO3QgUk7M9ZSzbg29s8IVv30EukCadh8Y7SQYw='", // Your inline script
         ],
         // ADD THIS NEW DIRECTIVE:
         "connect-src": [
@@ -1446,90 +1483,81 @@ io.use(wrap(passport.session()));
  */
 io.on('connection', (socket) => {
   console.log('A user connected');
-
-  // Get the user object from the socket's handshake request.
-  // This is available because of the middleware we just added.
   const user = socket.request.user;
+  const userId = user ? user.googleId : socket.id;
 
-  // Track the user if they are logged in
-  if (user && user.username) {
-    connectedUsers.set(socket.id, {
-      username: user.username,
-      googleId: user.googleId,
-    });
-    // Broadcast the new user list to everyone
-    io.emit('userListUpdated', Array.from(connectedUsers.values()));
-  }
-
-  // Send the initial state of the application to the newly connected client.
-  socket.emit('initialState', { currentText, liveSubmissions: getLiveFeedState(), nextTickTimestamp });
+  // Send the initial state, personalized with the user's votes
+  socket.emit('initialState', {
+    currentText,
+    liveSubmissions: getLiveFeedState(userId),
+    nextTickTimestamp
+  });
 
   /**
-   * socket.on('wordSubmitted', ...)
-   * -------------------------------
-   * Handles a word submission from a client. It validates the user's
-   * authentication status and the word itself before adding it to the live feed.
-   * If the user is not logged in, the submission is attributed to "anonymous".
+   * Handles a new word submission.
    */
   socket.on('wordSubmitted', (wordData) => {
-    // Validate the submitted word format first.
     const validation = validateSubmission(wordData.word);
     if (!validation.valid) {
       socket.emit('submissionFailed', { message: validation.reason });
       return;
     }
 
-    // Determine the user and a unique ID for this round's submission.
-    const user = socket.request.user;
-    const isAnonymous = !user || !user.username;
-    const username = isAnonymous ? 'anonymous' : user.username;
-    // Use Google ID for logged-in users, or socket ID for anonymous ones.
-    const submissionId = isAnonymous ? socket.id : user.googleId;
+    const username = user ? user.username : 'anonymous';
+    const compositeKey = getCompositeKey(wordData);
 
-    // Anonymous rate limiter
-    if (isAnonymous) {
-      const ip = socket.handshake.address;
-      const usage = anonUsage.get(ip);
-      const limit = constants.ANONYMOUS_MAX_SUB_PER_HOUR;
-      const oneHour = 60 * 60 * 1000;
-
-      if (usage && (Date.now() - usage.firstPostTime < oneHour)) {
-        if (usage.count >= limit) {
-          socket.emit('submissionFailed', {
-            message: `Anonymous limit reached. Please log in to continue.`
-          });
-          return; // Stop the submission
-        }
-        usage.count++;
-      } else {
-        // Start a new tracking period for this IP
-        anonUsage.set(ip, { count: 1, firstPostTime: Date.now() });
-      }
+    // If the word doesn't exist yet, add it.
+    if (!liveWords.has(compositeKey)) {
+      liveWords.set(compositeKey, {
+        word: wordData.word,
+        styles: wordData.styles,
+        submitterId: userId,
+        submitterName: username,
+        ts: Date.now(),
+        votes: new Map(),
+      });
     }
 
-    // If a human submits, clear any planned sentence from the bot.
-    if (botQueue.length > 0) {
-      console.log('[Bot] Human intervention detected. Clearing planned sentence.');
-      botQueue = [];
-    }
+    // A submission always counts as an upvote from the submitter.
+    const wordEntry = liveWords.get(compositeKey);
+    wordEntry.votes.set(userId, 1); // Set vote to +1 (upvote)
 
-    // Create the submission object.
-    const submission = {
-      word: wordData.word,
-      styles: wordData.styles,
-      username: username,
-      ts: Date.now()
-    };
-
-    submissionsByUserId.set(submissionId, submission);
-    io.emit('liveFeedUpdated', getLiveFeedState());
+    broadcastLiveFeed();
   });
 
   /**
-   * socket.on('disconnect', ...)
-   * ----------------------------
-   * Cleans up when a user disconnects by removing their pending word submission.
+   * Handles an upvote or downvote action from a client.
    */
+  socket.on('castVote', ({ compositeKey, direction }) => {
+    const wordEntry = liveWords.get(compositeKey);
+    if (!wordEntry) return; // Word might have been removed already
+
+    // A user cannot vote on their own submitted word.
+    if (wordEntry.submitterId === userId) return;
+
+    const currentVote = wordEntry.votes.get(userId) || 0;
+    let newVote = 0;
+
+    // Determine the new vote based on the clicked direction and current vote
+    if (direction === 'up') {
+      newVote = (currentVote === 1) ? 0 : 1; // Toggle upvote
+    } else if (direction === 'down') {
+      newVote = (currentVote === -1) ? 0 : -1; // Toggle downvote
+    }
+
+    // Update or remove the user's vote in the map
+    if (newVote === 0) {
+      wordEntry.votes.delete(userId);
+    } else {
+      wordEntry.votes.set(userId, newVote);
+    }
+
+    // Recalculate the word's total score
+    const totalScore = Array.from(wordEntry.votes.values()).reduce((acc, v) => acc + v, 0);
+
+    broadcastLiveFeed();
+  });
+
   socket.on('disconnect', () => {
     console.log('A user disconnected');
   });

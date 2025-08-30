@@ -17,7 +17,7 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;200;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body class="content-page"> <main class="container">
+<body class="content-page">
   <!-- =========================================================
         HEADER AND LOGIN
   ========================================================== -->
@@ -58,6 +58,7 @@
       <!-- =========================================================
            WORD SUBMISSION FORM + TIMER
       ========================================================== -->
+      <div id="mainContributorsContainer" class="contributors-filter"></div>
       <section class="submission-section">
         <form id="wordForm" class="submission-area">
           <input id="wordInput"
@@ -82,6 +83,7 @@
           <button class="style-btn" data-style="bold">B</button>
           <button class="style-btn" data-style="italic">I</button>
           <button class="style-btn" data-style="underline">U</button>
+          <button class="style-btn" data-style="newline">↵</button>
         </div>
       </section>
     </div>
@@ -110,27 +112,38 @@
           This is a collaborative writing experiment to create a story that never ends, built one word at a time by everyone.
         </p>
         <ul>
-          <li><strong>Submit & Style:</strong> Type a word in the input field. You can use the buttons to make it bold, italic, or underlined before submitting.</li>
-          <li><strong>Vote:</strong> You can vote for any submitted word in the live feed simply by clicking on it. The more clicks a word gets, the higher its vote count.</li>
-          <li><strong>Win:</strong> Every <strong>60 seconds</strong>, the round ends, and the word with the most votes is permanently added to the story.</li>
-          <li><strong>Archive:</strong> Every <strong>250 characters</strong>, the story is sealed into a permanent "chunk" with a unique cryptographic hash, ensuring its history can never be altered.</li>
+          <li><strong>Submit & Style:</strong> Type a word and use the buttons to make it bold, italic, underlined,
+            or start a new line (↵) before submitting.</li>
+          <li><strong>Vote:</strong> Use the up (▲) and down (▼) arrows to vote for words in the live feed.
+            You cannot vote on your own submissions.
+            The winner is determined by the highest net score (upvotes minus downvotes).</li>
+          <li><strong>Win:</strong> Every <strong>60 seconds</strong>, the round ends.
+            The word with the highest score (must be greater than zero) is permanently added to the story.
+            It will be automatically capitalized if it begins a new sentence.</li>
+          <li><strong>Archive:</strong> Every <strong>250 characters</strong>,
+            the story is sealed into a permanent "chunk" with a unique cryptographic hash,
+            ensuring its history can never be altered.</li>
         </ul>
 
         <p>
-          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>) will contribute a word if no one else has made a suggestion during 60 minutes. Its suggestions appear in the live feed and can be voted on just like any other submission.
+          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>)
+          will contribute a word if the live feed has been empty for 3 minutes.
+          Its suggestions can be voted on just like any other submission.
         </p>
 
         <p>
-          <strong>The Future:</strong> The vision is to grow this into a new form of digital literature. Future plans include broadcasting the story to social networks and implementing a system using <strong>user accounts or blockchain wallets</strong> to give contributors true ownership of the parts of the story they helped create.
+          <strong>The Future:</strong> The vision is to grow this into a new form of digital literature.
+          Future plans include broadcasting the story to social networks and implementing a system using blockchain wallets</strong>
+          to give contributors true ownership of the parts of the story they helped create.
         </p>
       </div>
     </div>
+  </main>
 
   <!-- =========================================================
         WORDS TOOLTIPS
   ========================================================== -->
   <div id="wordTooltip" class="word-tooltip"></div>
-  </main>
 
   <!-- =========================================================
        FOOTER

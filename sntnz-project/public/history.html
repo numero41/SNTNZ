@@ -1,7 +1,6 @@
 <!doctype html>
 <html>
   <head>
-    <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-RDT57DJH72"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -15,20 +14,28 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body class="history content-page">
-    <header class="history-header">
-      <h1>snTnz</h1>
-      <div class="history-subheader">Full Archive View</div>
+    <header class="site-header">
+      <div class="title-wrapper">
+        <h1 class="site-title">snTnz</h1>
+        <div class="history-subheader">Archive View</div>
+      </div>
+      <div id="backToMain" class="user-status">
+        <a href="/"><span>Home</span></a>
+      </div>
     </header>
 
-    <main id="historyContainer"></main>
-
-    <nav id="paginationContainer" class="pagination-nav"></nav>
-
-    <div id="wordTooltip" class="word-tooltip"></div>
+    <div class="container">
+      <div id="contributorsContainer" class="contributors-filter"></div>
+      <main id="historyContainer"></main>
+      <div id="wordTooltip" class="word-tooltip"></div>
+    </div>
+    <footer class="site-footer">
+      <nav id="paginationContainer" class="pagination-nav"></nav>
+      <p>&copy; 2025 snTnz. All rights reserved.</p>
+    </footer>
 
     <script type="module" src="/shared-ui.js"></script>
     <script type="module" src="/history-ui.js"></script>
     <script type="module" src="/history.js"></script>
-
   </body>
 </html>
