@@ -176,7 +176,8 @@ body {
 
 /* Site title and short headline */
 .site-title {
-  font-size: 2rem;
+  font-size: 1.8rem;
+  font-weight: bold;
   text-align: center;
   margin-bottom: calc(var(--spacing-base) / 2);
 }
