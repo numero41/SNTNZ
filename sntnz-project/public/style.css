@@ -7,7 +7,8 @@
   /* Colors (base palette) */
   --color-white: #fff;
   --color-black: #000;
-  --color-grey1: #ccc;
+  --color-grey0: #e3e3e3;
+  --color-grey1: #aeaeae;
   --color-grey2: #808080;
   --color-grey3: #333;
   --color-warning: #e7a33c;
@@ -267,7 +268,7 @@ body {
   padding: var(--spacing-base);
   border-top: var(--border-light);
   border-bottom: var(--border-light);
-  border-color: var(--color-grey1);
+  border-color: var(--color-grey0);
 }
 
 .submission-in-section {
