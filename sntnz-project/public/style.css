@@ -113,9 +113,7 @@ body {
 .sidebar {
   width: var(--content-width);
   max-width: 100%;
-  padding-top: calc(var(--spacing-base) * 2);
   max-height: calc(var(--spacing-base) * 30);
-  border-top: var(--border-light);
   text-align: center;
   overflow-y: auto;
 }
@@ -263,6 +261,22 @@ body {
 /* ============================================================================
    --- FORM & CONTROLS ---
 ============================================================================ */
+
+.submission-out-section {
+  width: 100%;
+  padding: var(--spacing-base);
+  border-top: var(--border-light);
+  border-bottom: var(--border-light);
+  border-color: var(--color-grey1);
+}
+
+.submission-in-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
 
 /* Submission area row (input + button) */
 .submission-area {

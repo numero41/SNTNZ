@@ -50,37 +50,48 @@
       </section>
 
       <!-- =========================================================
-           WORD SUBMISSION FORM + TIMER
+           WUSERS FILTER
       ========================================================== -->
       <div id="mainContributorsContainer" class="contributors-filter"></div>
-      <section class="submission-section">
-        <form id="wordForm" class="submission-area">
-          <input id="wordInput"
-                autocomplete="off"
-                maxlength="25"
-                placeholder="type next word"
-                autocapitalize="off"
-                autocorrect="off"
-                spellcheck="false" />
-          <button type="submit" id="submitButton" class="submit-button">
-            <span id="timer">60</span>
-          </button>
-        </form>
-      </section>
 
       <!-- =========================================================
-           STYLE OPTIONS (B/I/U)
+           SUBMISSION
       ========================================================== -->
-      <section class="style-options-section">
-        <div id="styleOptions" class="style-options">
-          <button class="style-btn active" data-style="none">T&#x0338;</button>
-          <button class="style-btn" data-style="bold">B</button>
-          <button class="style-btn" data-style="italic">I</button>
-          <button class="style-btn" data-style="underline">U</button>
-          <button class="style-btn" data-style="newline">↵</button>
+      <section class="submission-out-section">
+        <section class="submission-in-section">
+          <!-- =========================================================
+              WORD SUBMISSION FORM + TIMER
+          ========================================================== -->
+          <section class="submission-section">
+            <form id="wordForm" class="submission-area">
+              <input id="wordInput"
+                    autocomplete="off"
+                    maxlength="25"
+                    placeholder="type next word"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false" />
+              <button type="submit" id="submitButton" class="submit-button">
+                <span id="timer">60</span>
+              </button>
+            </form>
+          </section>
+
+          <!-- =========================================================
+              STYLE OPTIONS (B/I/U)
+          ========================================================== -->
+          <section class="style-options-section">
+            <div id="styleOptions" class="style-options">
+              <button class="style-btn active" data-style="none">T&#x0338;</button>
+              <button class="style-btn" data-style="bold">B</button>
+              <button class="style-btn" data-style="italic">I</button>
+              <button class="style-btn" data-style="underline">U</button>
+              <button class="style-btn" data-style="newline">↵</button>
+            </div>
+          </section>
         </div>
       </section>
-    </div>
+    </section>
 
     <!-- =========================================================
          FEEDBACK MESSAGE
