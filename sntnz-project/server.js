@@ -862,6 +862,37 @@ async function loadInitialTextFromHistory() {
 }
 
 /**
+ * GET /api/history/dates
+ * ----------------------
+ * Returns a sorted list of unique dates for which history chunks are available in the database.
+ */
+app.get('/api/history/dates', async (req, res) => {
+  try {
+    // This query finds all chunks, groups them by their UTC date, and returns the unique dates.
+    const dates = await chunksCollection.aggregate([
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$ts" } } }
+        }
+      },
+      { $sort: { _id: -1 } } // Sort dates newest to oldest
+    ]).toArray();
+
+    // Extract just the date strings from the result
+    const dateStrings = dates.map(d => d._id);
+    res.json(dateStrings);
+  } catch (err) {
+    console.error('[api] Failed to get history dates from DB:', err);
+    res.status(500).json({ error: 'Could not list history dates.' });
+  }
+});
+
+// Place it right before this existing route:
+app.get('/api/history/:date', async (req, res) => {
+  // ...
+});
+
+/**
  * GET /api/history/:date
  * ----------------------
  * Returns an array of history chunks for a specific date.
@@ -890,6 +921,7 @@ app.get('/api/history/:date', async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve history.' });
   }
 });
+
 
 
 // ============================================================================
