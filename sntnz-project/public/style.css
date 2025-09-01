@@ -198,6 +198,7 @@ body {
   height: 200px;
   padding-right: 1rem;
   overflow-y: auto;
+  overflow-x: hidden;
   scroll-behavior: smooth;
 }
 
@@ -826,6 +827,7 @@ body {
   padding-left: var(--page-gutter);
   padding-right: var(--page-gutter);
   align-items: stretch;
+  width: 100%;
 }
 
 /* Empty/error state text */

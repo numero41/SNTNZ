@@ -887,10 +887,6 @@ app.get('/api/history/dates', async (req, res) => {
   }
 });
 
-// Place it right before this existing route:
-app.get('/api/history/:date', async (req, res) => {
-  // ...
-});
 
 /**
  * GET /api/history/:date
@@ -912,8 +908,14 @@ app.get('/api/history/:date', async (req, res) => {
 
     // Find all permanent chunks within the given date range
     const chunks = await chunksCollection.find({
-      ts: { $gte: startOfDay.getTime(), $lte: endOfDay.getTime() }
+      $expr: {
+        $and: [
+          { $gte: [{ $toDate: "$ts" }, startOfDay] },
+          { $lte: [{ $toDate: "$ts" }, endOfDay] }
+        ]
+      }
     }).sort({ ts: 1 }).toArray();
+    // MODIFICATION END
 
     res.json(chunks);
   } catch (error) {
@@ -921,7 +923,6 @@ app.get('/api/history/:date', async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve history.' });
   }
 });
-
 
 
 // ============================================================================
@@ -1059,10 +1060,14 @@ app.use(
           "https://www.googletagmanager.com",
           "'sha256-OA2+WwO3QgUk7M9ZSzbg29s8IVv30EukCadh8Y7SQYw='", // Your inline script
         ],
-        // ADD THIS NEW DIRECTIVE:
         "connect-src": [
           "'self'",
           "https://region1.google-analytics.com",
+        ],
+        "img-src": [
+          "'self'",
+          "data:",
+          "lh3.googleusercontent.com", // Allows Google user profile pictures
         ],
       },
     },
