@@ -236,6 +236,13 @@ export function renderLiveFeed(feedData) {
     downvoteBtn.textContent = '▼';
     const wordContent = document.createElement('div');
     wordContent.className = 'word-content';
+    if (item.styles.newline) {
+      const newlineSpan = document.createElement('span');
+      newlineSpan.textContent = '↵';
+      newlineSpan.style.marginRight = '0.25rem';
+      newlineSpan.style.color = 'var(--color-grey2)';
+      wordContent.appendChild(newlineSpan);
+    }
     const wordSpan = document.createElement('span');
     wordSpan.className = 'word-text';
     wordSpan.textContent = item.word;
@@ -536,6 +543,7 @@ function addFormAndStyleEvents() {
         selectedStyles.newline = document.querySelector('[data-style="newline"]').classList.contains('active');
 
         // Apply styles directly to the input field for visual feedback.
+        wordForm.classList.toggle('newline-selected', selectedStyles.newline);
         wordInput.style.fontWeight = selectedStyles.bold ? 'bold' : 'normal';
         wordInput.style.fontStyle = selectedStyles.italic ? 'italic' : 'normal';
         wordInput.style.textDecoration = selectedStyles.underline ? 'underline' : 'none';
@@ -570,8 +578,15 @@ function addFormAndStyleEvents() {
  */
 async function loadMoreHistory() {
   // If we already know there's no more history, or we are loading, do nothing.
-  if (isLoadingMore || noMoreHistory || currentWordsArray.length === 0) return;
+  if (isLoadingMore || currentWordsArray.length === 0) return;
+  if (noMoreHistory) {
+    if (currentWordsArray.length > 100) {
+      showFeedback("History buffer limit reached.", "warning");
+    }
+    return;
+  }
   isLoadingMore = true;
+
 
   // Get the timestamp of the oldest word we currently have.
   const oldestTimestamp = currentWordsArray[0].ts;
@@ -626,8 +641,10 @@ async function loadMoreHistory() {
       const newScrollHeight = container.scrollHeight;
       container.scrollTop = newScrollHeight - oldScrollHeight;
     } else {
-      showFeedback("The history buffer limit is reached.", "warning");
-      noMoreHistory = true;
+      if (currentWordsArray.length > 100) {
+        showFeedback("History buffer limit reached.", "warning");
+      }
+     noMoreHistory = true;
     }
   } catch (error) {
     console.error("Failed to load more history:", error);

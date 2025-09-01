@@ -443,6 +443,7 @@ body {
   transition: opacity 1s ease, transform 0.3s ease;
   color: var(--color-white);
   background-color: var(--color-white);
+  text-align: center;
 }
 
 /* Coloring depending on message type */
@@ -528,10 +529,26 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
 }
 
 .word-text {
   margin-right: 5px;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+/* New line indicator */
+.newline-indicator {
+  display: none;
+  align-self: center;
+  margin-right: 0.5rem;
+  color: var(--color-grey2);
+  font-size: 1.2rem;
+}
+
+.submission-area.newline-selected .newline-indicator {
+  display: inline;
 }
 
 /* ============================================================================
@@ -641,7 +658,6 @@ body {
 .user-menu-container {
   position: relative;
   display: inline-block;
-  z-index: 101;
 }
 
 .user-dropdown-content {
@@ -655,6 +671,7 @@ body {
   box-shadow: 0px 8px 16px 0px var(--color-shadow);
   border: var(--border-light);
   border-radius: var(--border-radius);
+  font-size: 0.9rem;
 }
 
 .user-dropdown-content a {
@@ -695,7 +712,7 @@ body {
 .contributors-dropdown {
   position: relative;
   display: inline-block;
-  z-index: 101;
+  z-index: 50;
 }
 
 .contributors-dropdown-btn {
@@ -846,7 +863,7 @@ body {
   border-radius: 4px;
   pointer-events: none;
   transition: opacity 0.2s ease-in-out;
-  z-index: 100;
+  z-index: 500;
   white-space: nowrap;
 }
 .word-tooltip.visible {

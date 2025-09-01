@@ -20,6 +20,9 @@ const connectedUsers = new Map();
 // Google Generative AI SDK (Gemini)
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Mongo database for user data and usage tracking
+const { MongoClient, ServerApiVersion } = require('mongodb');
+
 // Hardening helpers
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -62,24 +65,29 @@ const constants = require('./constants');
 const { AllProfanity } = require('allprofanity');
 const profanityFilter = new AllProfanity();
 
-// Use the Render disk path on Render, otherwise use the local path from .env
-const dataDir = process.env.DATA_PATH;
+// ============================================================================
+// --- DATABASE SETUP ---
+// ============================================================================
+const client = new MongoClient(process.env.DATABASE_URL, {
+  serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
+});
 
-// Add a check to ensure a path is configured
-if (!dataDir) {
-  console.error("FATAL ERROR: No data directory path. Set DATA_PATH in .env.");
-  process.exit(1); // Exit if no path is found
-}
+let usersCollection;
+let wordsCollection;
+let chunksCollection;
 
-console.log(`[Storage] Using data directory: ${dataDir}`);
-
-const historyDir = path.join(dataDir, 'history');
-const usersFilePath = path.join(dataDir, 'users.json');
-
-// Ensure directories exist on startup
-if (!fs.existsSync(historyDir)) {
-  fs.mkdirSync(historyDir, { recursive: true });
-  console.log(`[Storage] Created storage directory: ${historyDir}`);
+async function connectToDatabase() {
+  try {
+    await client.connect();
+    const db = client.db();
+    usersCollection = db.collection('users');
+    wordsCollection = db.collection('words');
+    chunksCollection = db.collection('chunks');
+    console.log("[db] Successfully connected to MongoDB Atlas!");
+  } catch (err) {
+    console.error("[db] Failed to connect to MongoDB", err);
+    process.exit(1);
+  }
 }
 
 // ============================================================================
@@ -98,12 +106,11 @@ let botQueue = [];
 let currentText = [];
 let liveWords = new Map();
 let nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
-let historyBuffer = [];
-let characterCount = 0;
 let lastBotPostTimestamp = 0;
 let users = new Map();
 const anonUsage = new Map();
 let shuttingDown = false;
+let characterCount = 0;
 
 
 // ============================================================================
@@ -209,9 +216,8 @@ function validateSubmission(word) {
  *
  * @returns {void}
  */
-function endRoundAndElectWinner() {
+async function endRoundAndElectWinner() {
   // Immediately calculate and broadcast the timestamp for the NEXT round.
-  // This ensures client-side timers remain responsive and accurate.
   nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
   io.emit('nextTick', { nextTickTimestamp });
 
@@ -222,18 +228,12 @@ function endRoundAndElectWinner() {
   liveWords.clear();
   broadcastLiveFeed(); // This function sends the new, empty list to all clients.
 
-  // Process the winner from the captured state.
-
-  // Filter for potential winners. According to the rules, a winner
-  // must have a positive score (greater than 0).
+  // Filter for potential winners (score > 0).
   const potentialWinners = liveFeed.filter(item => item.count > 0);
 
   // Only proceed if there is at least one valid winner.
   if (potentialWinners.length > 0) {
-    // The winner is the first item from the sorted, filtered list.
     let winner = potentialWinners[0];
-
-    // Calculate the total number of positive votes cast in the round for statistics.
     const total = liveFeed.reduce((acc, item) => acc + Math.max(0, item.count), 0);
 
     // Automatically capitalize the word if it starts a new sentence.
@@ -253,15 +253,27 @@ function endRoundAndElectWinner() {
         username: winner.username,
         pct: total > 0 ? (winner.count / total) * 100 : 0,
         count: winner.count,
-        total: total
+        total: total,
+        chunkId: null // Every new word starts as un-chunked
     };
 
-    // Update the application's persistent state with the new word.
+    // 1. Save the winning word directly to the 'words' collection.
+    try {
+        await wordsCollection.insertOne(winnerRow);
+    } catch (err) {
+        console.error("[db] Failed to save word to database:", err);
+    }
+
+    // 2. Update the application's in-memory state.
     currentText.push(winnerRow);
     if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
-
     pushBotContext(winner.word);
-    addWordToHistoryBuffer(winnerRow);
+
+    // 3. Update the character count and check if it's time to seal a chunk.
+    characterCount += winner.word.length + 1;
+    if (characterCount >= constants.HISTORY_CHUNK_LENGTH) {
+      sealNewChunk(); // Trigger the sealing process
+    }
   }
 
   // Check if the bot's submission was rejected to force a new sentence
@@ -274,7 +286,6 @@ function endRoundAndElectWinner() {
   }
 
   // Broadcast the updated story text to all clients.
-  // This is done even if there was no winner, to ensure client state remains consistent.
   io.emit('currentTextUpdated', currentText);
 }
 
@@ -769,206 +780,58 @@ setInterval(() => {
 }, 5 * 60 * 1000); // Run every 5 minutes
 
 // ============================================================================
-// --- USERS STORAGE ---
-// ============================================================================
-
-/**
- * saveUsersToFile
- * ---------------
- * Saves the current in-memory users map to a JSON file on disk.
- */
-async function saveUsersToFile() {
-  // Convert Map to an array of [key, value] pairs for JSON compatibility
-  const usersArray = Array.from(users.entries());
-  try {
-    await fsPromises.writeFile(usersFilePath, JSON.stringify(usersArray, null, 2));
-  } catch (err) {
-    console.error('[db] Error saving users to file:', err);
-  }
-}
-
-/**
- * loadUsersFromFile
- * -----------------
- * Loads the users from the JSON file into the in-memory map on startup.
- */
-async function loadUsersFromFile() {
-  try {
-    await fsPromises.access(usersFilePath);
-    const data = await fsPromises.readFile(usersFilePath, 'utf8');
-    const usersArray = JSON.parse(data);
-    // Convert the array back into a Map
-    users = new Map(usersArray);
-    console.log(`[db] Successfully loaded ${users.size} users from disk.`);
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      console.log('[db] users.json not found. Starting with an empty user database.');
-    } else {
-      console.error('[db] Error loading users from file:', err);
-    }
-  }
-}
-
-// ============================================================================
 // --- HISTORY AND CHUNKS SETUP ---
 // ============================================================================
 
 /**
- * ensureHistoryDir
- * ----------------
- * Lazily ensures the ./history directory exists.
- *
- * @example
- * ensureHistoryDir();
+ * @summary Seals all un-chunked words into a new, permanent chunk document.
+ * @description This function reads all words that haven't been assigned to a chunk,
+ * generates a cryptographic hash from them, saves the new chunk to the 'chunks'
+ * collection, and then updates the original word documents to link them to the new chunk.
  */
-function ensureHistoryDir() {
-  if (!fs.existsSync( historyDir)) {
-    fs.mkdirSync( historyDir, { recursive: true });
-  }
-}
-
-/**
- * dayFilePath
- * -----------
- * Returns the NDJSON file path for a given timestamp's UTC date.
- *
- * @param {number} tsMs - Unix epoch in milliseconds.
- * @returns {string} - Full path like ./history/2025-08-23.ndjson
- *
- * @example
- * const p = dayFilePath(Date.now());
- */
-function dayFilePath(tsMs) {
-  const d = new Date(tsMs);
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return path.join( historyDir, `${yyyy}-${mm}-${dd}.ndjson`);
-}
-
-/**
- * finalizeAndSaveChunk
- * --------------------
- * Hashes and saves the current history buffer to a file.
- */
-async function finalizeAndSaveChunk() {
-  if (historyBuffer.length === 0) return;
-
-  console.log(`[history] Finalizing chunk with ${characterCount} chars.`);
-
-  // Create a canonical string representation of the word data, including styles.
-  // Hashing this ensures the integrity of the content and its formatting.
-  const dataToHash = JSON.stringify(historyBuffer);
-  const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
-
-  const chunkText = historyBuffer.map(w => w.word).join(' ');
-
-  // The final chunk object to be saved.
-  const chunkObject = {
-    ts: historyBuffer[0].ts,
-    hash: hash,
-    text: chunkText,
-    words: [...historyBuffer], // Full word data for rich client-side rendering
-  };
-
-  const file = dayFilePath(chunkObject.ts);
-  const line = JSON.stringify(chunkObject) + '\n';
-
+async function sealNewChunk() {
   try {
-    await fsPromises.appendFile(file, line, 'utf8');
-    console.log(`[history] Successfully saved chunk ${hash.substring(0, 7)}`);
-  } catch (err) {
-    console.error('[archive] append failed:', err);
-  }
+    // 1. Find all words that have not been chunked yet.
+    const wordsToChunk = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
 
-  // Reset the buffer for the next chunk.
-  historyBuffer = [];
-  characterCount = 0;
-}
+    if (wordsToChunk.length === 0) {
+      console.log('[history] No words to chunk.');
+      return;
+    }
 
-/**
- * finalizeAndSaveChunkSync
- * ------------------------
- * Synchronous fallback to persist the current history buffer when the process
- * is being terminated and async I/O may not complete in time.
- * - Writes the same shape as finalizeAndSaveChunk()
- * - Resets the in-memory buffer like the async version
- *
- * @returns {void}
- *
- * @example
- * finalizeAndSaveChunkSync();
- */
-function finalizeAndSaveChunkSync() {
-  try {
-    if (historyBuffer.length === 0) return;
+    console.log(`[history] Sealing new chunk with ${wordsToChunk.length} words.`);
 
-    // Build canonical payload (same as async version)
-    const dataToHash = JSON.stringify(historyBuffer);
+    // 2. Create the chunk object and its hash.
+    const dataToHash = JSON.stringify(wordsToChunk);
     const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
-    const chunkText = historyBuffer.map(w => w.word).join(' ');
+    const chunkText = wordsToChunk.map(w => w.word).join(' ');
 
-    const chunkObject = {
-      ts: historyBuffer[0].ts,
+    const newChunk = {
+      ts: wordsToChunk[0].ts,
       hash: hash,
       text: chunkText,
-      words: [...historyBuffer], // full word data for rich rendering
+      words: wordsToChunk,
     };
 
-    // Ensure directory exists and append synchronously
-    ensureHistoryDir();
-    const file = dayFilePath(chunkObject.ts);
-    const line = JSON.stringify(chunkObject) + '\n';
-    fs.appendFileSync(file, line, 'utf8');
+    // 3. Save the new chunk to the 'chunks' collection.
+    const insertedChunk = await chunksCollection.insertOne(newChunk);
+    const newChunkId = insertedChunk.insertedId;
 
-    // Reset buffers (mirror async behavior)
-    historyBuffer = [];
+    // 4. Update the original words to mark them as chunked.
+    const wordIdsToUpdate = wordsToChunk.map(w => w._id);
+    await wordsCollection.updateMany(
+      { _id: { $in: wordIdsToUpdate } },
+      { $set: { chunkId: newChunkId } }
+    );
+
+    // 5. Reset the in-memory character count.
     characterCount = 0;
+    console.log(`[history] Successfully sealed chunk ${hash.substring(0, 12)}`);
 
-    console.log(`[history] Sync-saved final chunk ${hash.substring(0, 7)}`);
   } catch (err) {
-    console.error('[history] Sync save failed:', err);
+    console.error('[history] Error sealing new chunk:', err);
   }
 }
-
-/**
- * addWordToHistoryBuffer
- * ----------------------
- * Adds a winning word to the history buffer and finalizes a chunk if full.
- * @param {Object} wordObject - The winning word object.
- */
-async function addWordToHistoryBuffer(wordObject) {
-  const wordLength = wordObject.word.length + 1; // +1 for the space
-
-  // If adding the new word would exceed the chunk length, save the current chunk first.
-  if (historyBuffer.length > 0 && characterCount + wordLength > constants.HISTORY_CHUNK_LENGTH) {
-    await finalizeAndSaveChunk();
-  }
-
-  historyBuffer.push(wordObject);
-  characterCount += wordLength;
-}
-
-/**
- * GET /api/history/dates
- * ----------------------
- * Returns a sorted list of dates for which history files are available.
- * The dates are in YYYY-MM-DD format, from most to least recent.
- */
-app.get('/api/history/dates', (req, res) => {
-  ensureHistoryDir();
-  fs.readdir(historyDir, (err, files) => {
-    if (err) {
-      console.error('[api] Failed to read history directory:', err);
-      return res.status(500).json({ error: 'Could not list history files.' });
-    }
-    const dates = files
-      .filter(file => file.endsWith('.ndjson'))
-      .map(file => file.replace('.ndjson', ''))
-      .sort()
-    res.json(dates);
-  });
-});
 
 /**
  * loadInitialTextFromHistory
@@ -977,98 +840,26 @@ app.get('/api/history/dates', (req, res) => {
  * the current text when the server starts.
  */
 async function loadInitialTextFromHistory() {
-  console.log('[history] Loading initial text from archive...');
+  console.log('[history] Loading initial text from database...');
   try {
-    const file = dayFilePath(Date.now());
-    await fsPromises.access(file); // Check if the file exists
-
-    const data = await fsPromises.readFile(file, 'utf8');
-    const lines = data.trim().split('\n').filter(Boolean);
-    if (lines.length === 0) {
-      console.log('[history] History file is empty.');
-      return;
-    }
-
-    // CORRECT LOGIC: Extract words from chunks, then take the last N words.
-    const allWordsFromChunks = lines
-      .map(line => {
-        try { return JSON.parse(line); } catch { return null; } // Safely parse JSON
-      })
-      .filter(chunk => chunk && Array.isArray(chunk.words)) // Ensure it's a valid chunk
-      .flatMap(chunk => chunk.words); // Flatten all 'words' arrays into one
-
-    // Take the last N words for the initial state.
-    currentText = allWordsFromChunks.slice(-constants.CURRENT_TEXT_LENGTH);
-
-    console.log(`[history] Successfully loaded ${currentText.length} words.`);
-    // Also populate the bot context from this loaded history
+    // Load the most recent words for the live display
+    const recentWords = await wordsCollection.find()
+      .sort({ ts: -1 })
+      .limit(constants.CURRENT_TEXT_LENGTH)
+      .toArray();
+    currentText = recentWords.reverse();
+    console.log(`[history] Successfully loaded ${currentText.length} live words.`);
     currentText.forEach(w => pushBotContext(w.word));
 
+    // Separately, calculate the character count of ALL un-chunked words
+    const unchunkedWords = await wordsCollection.find({ chunkId: null }).toArray();
+    characterCount = unchunkedWords.reduce((acc, word) => acc + word.word.length + 1, 0);
+    console.log(`[history] Initialized un-chunked character count to: ${characterCount}`);
+
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      console.log('[history] No history file for today. Starting with a blank slate.');
-    } else {
-      console.error('[history] Failed to load initial text:', error);
-    }
+    console.error('[history] Failed to load initial text:', error);
   }
 }
-
-/**
- * GET /api/history/before
- * -----------------------
- * Returns a batch of word objects that occurred before a given timestamp.
- * Used for the main page's infinite scroll.
- */
-app.get('/api/history/before', async (req, res) => {
-  const ts = parseInt(req.query.ts, 10);
-  const limit = parseInt(req.query.limit, 10) || 50;
-  if (!ts || !Number.isFinite(ts)) {
-    return res.status(400).json({ error: 'A valid `ts` query parameter is required.' });
-  }
-
-  const oneDay = 24 * 60 * 60 * 1000;
-  let cursorTs = ts;
-  let results = [];
-
-  // Helper to read a file and extract all words from its chunks
-  async function collectWordsFromFile(filePath) {
-    try {
-      await fsPromises.access(filePath);
-      const data = await fsPromises.readFile(filePath, 'utf8');
-      const lines = data.trim().split('\n').filter(Boolean);
-      const chunks = lines.map(line => JSON.parse(line));
-      // Use flatMap to get all words from all chunks in the file
-      // It safely handles old "word" objects by returning [] for them.
-      return chunks.flatMap(chunk => chunk.words || []);
-    } catch {
-      return []; // Return empty array if file doesn't exist or fails
-    }
-  }
-
-  // Keep searching backwards day-by-day until we find enough older words
-  for (let i = 0; i < 2; i++) { // Limit search to 5 days back
-    const wordsFromFile = await collectWordsFromFile(dayFilePath(cursorTs));
-
-    // Find words in this file that are ACTUALLY older than our timestamp
-    const olderWordsInFile = wordsFromFile.filter(word => word.ts < ts);
-    results.push(...olderWordsInFile);
-
-    // If we have found enough, we can stop searching.
-    if (results.length >= limit) {
-      break;
-    }
-
-    // Move to the previous day for the next iteration
-    cursorTs -= oneDay;
-  }
-
-  // Sort and slice the final combined list of words
-  const finalResults = results
-    .sort((a, b) => b.ts - a.ts) // Newest first
-    .slice(0, limit);
-
-  res.json(finalResults);
-});
 
 /**
  * GET /api/history/:date
@@ -1084,38 +875,22 @@ app.get('/api/history/:date', async (req, res) => {
     return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
   }
 
-  ensureHistoryDir();
-  const file = path.join(historyDir, `${date}.ndjson`);
-
   try {
-    await fsPromises.access(file); // Check if file exists
-    const fileContent = await fsPromises.readFile(file, 'utf-8');
-    if (!fileContent.trim()) return res.json([]); // Handle empty file
+    const startOfDay = new Date(`${date}T00:00:00.000Z`);
+    const endOfDay = new Date(`${date}T23:59:59.999Z`);
 
-    const lines = fileContent.trim().split('\n');
-    const chunks = lines.map(line => JSON.parse(line));
+    // Find all permanent chunks within the given date range
+    const chunks = await chunksCollection.find({
+      ts: { $gte: startOfDay.getTime(), $lte: endOfDay.getTime() }
+    }).sort({ ts: 1 }).toArray();
+
     res.json(chunks);
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      return res.status(404).json({ error: `No history found for date: ${date}` });
-    }
     console.error(`[api] Error reading history for ${date}:`, error);
     res.status(500).json({ error: 'Failed to retrieve history.' });
   }
 });
 
-/**
- * GET /history/today.ndjson
- * -------------------------
- * Streams today's NDJSON file if it exists.
- */
-app.get('/history/today.ndjson', (req, res) => {
-  ensureHistoryDir();
-  const file = dayFilePath(Date.now());
-  if (!fs.existsSync(file)) return res.status(404).send('No history yet.');
-  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-  fs.createReadStream(file).pipe(res);
-});
 
 // ============================================================================
 // --- AUTHENTICATION & SESSION MIDDLEWARE ---
@@ -1149,31 +924,31 @@ const sessionMiddleware = session({
  * This tells Passport how to use the client ID and secret to talk to Google.
  */
 passport.use(new GoogleStrategy({
-    // Credentials from the Google Cloud Console.
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    // The URL Google will redirect to after the user grants permission.
     callbackURL: "/auth/google/callback"
   },
-  (accessToken, refreshToken, profile, done) => {
-    // Find or create a user in our "database"
-    let user = users.get(profile.id);
+  async (accessToken, refreshToken, profile, done) => {
+    try {
+      // Look for an existing user in the database
+      let user = await usersCollection.findOne({ googleId: profile.id });
 
-    if (!user) {
-      // If the user doesn't exist, create a new record for them.
-      // The `username` is initially null.
-      user = {
-        googleId: profile.id,
-        googleProfile: profile, // Store the original profile
-        username: null,
-      };
-      users.set(profile.id, user);
-      saveUsersToFile();
-      console.log(`[auth] New user created with Google ID: ${profile.id}`);
+      if (!user) {
+        // If the user doesn't exist, create a new one in the database
+        const newUser = {
+          googleId: profile.id,
+          googleProfile: profile,
+          username: null,
+        };
+        await usersCollection.insertOne(newUser);
+        console.log(`[auth] New user created with Google ID: ${profile.id}`);
+        return done(null, newUser);
+      }
+      // If user exists, return them
+      return done(null, user);
+    } catch (err) {
+      return done(err);
     }
-
-    // Pass the user object to the `done` callback.
-    return done(null, user);
   }
 ));
 
@@ -1193,10 +968,13 @@ passport.serializeUser((user, done) => {
  * Retrieves the full user object (including custom username) from our
  * `users` map using the Google ID stored in the session.
  */
-passport.deserializeUser((googleId, done) => {
-  const user = users.get(googleId);
-  console.log('[DEBUG] Deserializing user:', user);
-  done(null, user || null);
+passport.deserializeUser(async (googleId, done) => {
+  try {
+    const user = await usersCollection.findOne({ googleId: googleId });
+    done(null, user || null);
+  } catch (err) {
+    done(err);
+  }
 });
 
 // ============================================================================
@@ -1376,7 +1154,7 @@ app.get('/api/user', (req, res) => {
  * ------------------
  * Allows a new user to set their unique username.
  */
-app.post('/api/username', (req, res) => {
+app.post('/api/username', async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ message: 'You must be logged in.' });
   }
@@ -1385,7 +1163,6 @@ app.post('/api/username', (req, res) => {
     return res.status(400).json({ message: 'Username has already been set.' });
   }
 
-  // Get the username
   const { username } = req.body;
 
   // Validation
@@ -1396,27 +1173,25 @@ app.post('/api/username', (req, res) => {
     return res.status(400).json({ message: 'Username can only contain letters, numbers, and underscores.' });
   }
 
-  // Check for uniqueness
-  for (const u of users.values()) {
-    if (u.username && u.username.toLowerCase() === username.toLowerCase()) {
+  try {
+    // Check for uniqueness (case-insensitive) in the database
+    const existingUser = await usersCollection.findOne({ username: { $regex: `^${username}$`, $options: 'i' } });
+    if (existingUser) {
       return res.status(409).json({ message: 'Username is already taken.' });
     }
-  }
 
-  // Save the username
-  req.user.username = username;
-  users.set(req.user.googleId, req.user);
+    // Save the username to the user's document in the database
+    await usersCollection.updateOne(
+      { googleId: req.user.googleId },
+      { $set: { username: username } }
+    );
 
-  // Explicitly save the session before responding
-  req.session.save((err) => {
-    if (err) {
-      console.error('[auth] Session save error:', err);
-      return res.status(500).json({ message: 'Error saving session.' });
-    }
     console.log(`[auth] User ${req.user.googleId} set username to: ${username}`);
-    saveUsersToFile();
     res.status(200).json({ message: 'Username saved successfully!' });
-  });
+  } catch (err) {
+      console.error('[auth] Error setting username:', err);
+      res.status(500).json({ message: 'Error saving username.' });
+  }
 });
 
 /**
@@ -1431,19 +1206,13 @@ app.delete('/api/user', async (req, res) => {
 
   const { googleId } = req.user;
   try {
-    // Remove the user from the in-memory map
-    if (users.has(googleId)) {
-      users.delete(googleId);
-      await saveUsersToFile(); // Persist the change
-      console.log(`[auth] User account deleted: ${googleId}`);
-    }
+    // Remove the user from the database
+    await usersCollection.deleteOne({ googleId: googleId });
+    console.log(`[auth] User account deleted: ${googleId}`);
 
     // Log the user out completely
     req.logout((err) => {
-      if (err) {
-        console.error('[auth] Logout error during account deletion:', err);
-        // Continue to destroy session even if logout has an error
-      }
+      if (err) { console.error('[auth] Logout error during account deletion:', err); }
       req.session.destroy((err) => {
         if (err) {
           console.error('[auth] Session destruction error during account deletion:', err);
@@ -1503,10 +1272,24 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const user = socket.request.user;
+    const userId = user ? user.googleId : socket.id;
     const username = user ? user.username : 'anonymous';
+
+    // Remove user's previous submission
+    // Iterate over the liveWords map to find and remove any existing
+    // submission from this specific user before adding their new one.
+    for (const [key, entry] of liveWords.entries()) {
+      if (entry.submitterId === userId) {
+        liveWords.delete(key);
+        break; // A user can only have one submission, so we can stop searching.
+      }
+    }
+
     const compositeKey = getCompositeKey(wordData);
 
-    // If the word doesn't exist yet, add it.
+    // If the word doesn't exist yet, add it. This is still needed in case
+    // multiple different users submit the exact same word.
     if (!liveWords.has(compositeKey)) {
       liveWords.set(compositeKey, {
         word: wordData.word,
@@ -1575,7 +1358,7 @@ io.on('connection', (socket) => {
  * the main server listener.
  */
 async function startServer() {
-  await loadUsersFromFile();
+  await connectToDatabase(); // Connect to the database before anything else
   await loadInitialTextFromHistory();
   server.listen(PORT, () => {
     console.log(`snTnz server is running at http://localhost:${PORT}`);
@@ -1583,73 +1366,38 @@ async function startServer() {
 }
 
 /**
- * shutdown
- * --------
- * Gracefully stops the server when an OS signal is received.
- * - Stops accepting new HTTP connections and closes Socket.IO.
- * - Immediately attempts to persist any pending history.
- * - Uses async finalize with a short timeout, then sync fallback if needed.
- * - Forces exit after a safety window if cleanup hangs.
- *
- * @param {string} sig - Signal name (e.g., "SIGINT", "SIGTERM").
+ * @summary Gracefully stops the server upon receiving an OS signal.
+ * @description This function ensures a clean shutdown by closing active servers,
+ * attempting a final save of any pending history data from memory to the
+ * database, and setting a timeout to force an exit if the shutdown process hangs.
+ * It's designed to prevent data loss during planned restarts or deployments.
+ * @param {string} sig - The name of the OS signal that triggered the shutdown (e.g., "SIGINT", "SIGTERM").
  * @returns {void}
- *
  * @example
- * process.once('SIGINT',  () => shutdown('SIGINT'));
- * process.once('SIGTERM', () => shutdown('SIGTERM'));
+ * process.once('SIGINT', () => shutdown('SIGINT'));
  */
 async function shutdown(sig) {
   if (shuttingDown) return;
   shuttingDown = true;
-
   console.log(`[shutdown] ${sig} received`);
 
-  // 1) Stop taking new work as early as possible
+  // Stop taking new work
+  io.close(() => console.log('[shutdown] sockets closed'));
+  server.close(() => console.log('[shutdown] http server closed'));
+
+  // Attempt to seal any remaining words into a final chunk
   try {
-    io.close(() => console.log('[shutdown] sockets closed'));
-  } catch (e) {
-    console.warn('[shutdown] io.close error:', e?.message || e);
+    console.log('[shutdown] Attempting to seal final chunk...');
+    await sealNewChunk();
+  } catch (err) {
+    console.error('[shutdown] Final chunk seal failed:', err);
   }
 
-  try {
-    server.close(() => console.log('[shutdown] http server closed'));
-  } catch (e) {
-    console.warn('[shutdown] server.close error:', e?.message || e);
-  }
-
-  // 2) Persist any partial history right away
-  try {
-    const FINALIZE_TIMEOUT_MS = 2500; // short budget before Render’s hard kill
-    await Promise.race([
-      finalizeAndSaveChunk(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('finalize-timeout')), FINALIZE_TIMEOUT_MS)),
-    ]);
-    console.log('[shutdown] Final history chunk saved (async).');
-  } catch (e) {
-    console.warn('[shutdown] Async finalize failed or timed out, using sync fallback:', e?.message || e);
-    finalizeAndSaveChunkSync();
-  }
-
-  // 3) Safety exit: allow pending closes to settle, then exit
-  const FORCE_EXIT_AFTER_MS = 25000; // stay under typical PaaS 30s kill window
+  // Safety exit
   setTimeout(() => {
     console.warn('[shutdown] Graceful shutdown timed out. Exiting.');
     process.exit(0);
-  }, FORCE_EXIT_AFTER_MS);
+  }, 5000);
 }
-
-process.once('SIGINT',  () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-
-// Crash guards: Ensure we don't lose the current chunk on unexpected crashes.
-process.on('unhandledRejection', (reason) => {
-  console.error('[fatal] unhandledRejection:', reason);
-  try { finalizeAndSaveChunkSync(); } finally { process.exit(1); }
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('[fatal] uncaughtException:', err);
-  try { finalizeAndSaveChunkSync(); } finally { process.exit(1); }
-});
 
 startServer();
