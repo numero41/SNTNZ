@@ -399,9 +399,9 @@ async function runBotSubmission() {
   // 1) CONTEXT & BAN LIST (recent words + offensive words)
   //  - Build a dynamic ban list from recent tokens, profanity, and optional external lists.
   //========================================
-  // Last 10 unique recent words (normalized)
+  // Last 50 unique recent words (normalized)
   const recent = allWords
-    .slice(-10)
+    .slice(-50)
     .map(w => w.toLowerCase().replace(/[.,!?;:…]+$/u, ''))
     .filter(Boolean);
   const uniqRecent = [...new Set(recent)];
@@ -473,7 +473,7 @@ async function runBotSubmission() {
       1) Length: 4–${constants.BOT_SENTENCE_MAX_WORDS} words total.
       2) Include at least one concrete noun and one verb.
       3) Do NOT use any of these words in ANY form: ${banListForPrompt}
-      4) Try to NOT repeat any word within this sentence, and try to avoid repeating words from the previous text.
+      4) Do not repeat words within your new sentence. Actively avoid repeating words and themes from the recent context. Be novel.
       5) No interjections or filler words; avoid adjective lists without action.
       6) End with proper punctuation (. ! or ?).
       7) Style and story: You are a surrealist poet contributing to a collective story.
