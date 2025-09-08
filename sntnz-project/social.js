@@ -332,7 +332,7 @@ async function postEverywhere(text, imageUrl, isProduction) {
   const jobs = [
     postToInstagram(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Instagram post failed')),
     postToFacebookPage(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Facebook Page post failed')),
-    //postToX(text, imageUrl).catch(e => logger.error({ err: e }, '[social] X post failed')),
+    postToX(text, imageUrl).catch(e => logger.error({ err: e }, '[social] X post failed')),
   ];
   await Promise.allSettled(jobs);
   logger.info('[social] Cross-posting attempts finished.');
