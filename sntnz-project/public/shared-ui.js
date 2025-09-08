@@ -50,13 +50,26 @@ export function addTooltipEvents(containerElement, tooltipElement) {
       });
 
       // --- 3. Populate Tooltip Content ---
-      // Use the extracted and formatted data to build the tooltip's HTML.
-      tooltipElement.innerHTML = `
-        <strong>Author:</strong> ${data.username}<br>
-        <strong>Time (Local):</strong> ${localTimeString}<br>
-        <strong>Time (UTC):</strong> ${utcTimeString}<br>
-        <strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)
-      `;
+      const authorLine = document.createElement('div');
+      const authorStrong = document.createElement('strong');
+      authorStrong.textContent = 'Author: ';
+      authorLine.appendChild(authorStrong);
+      authorLine.appendChild(document.createTextNode(data.username)); // Securely append username as text
+
+      const timeLocalLine = document.createElement('div');
+      timeLocalLine.innerHTML = `<strong>Time (Local):</strong> ${localTimeString}`; // Safe, not user content
+
+      const timeUtcLine = document.createElement('div');
+      timeUtcLine.innerHTML = `<strong>Time (UTC):</strong> ${utcTimeString}`; // Safe, not user content
+
+      const votesLine = document.createElement('div');
+      votesLine.innerHTML = `<strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)`; // Safe, not user content
+
+      // Append all lines to the tooltip
+      tooltipElement.appendChild(authorLine);
+      tooltipElement.appendChild(timeLocalLine);
+      tooltipElement.appendChild(timeUtcLine);
+      tooltipElement.appendChild(votesLine);
 
       // --- 4. Calculate Tooltip Position ---
       // Get dimensions and position needed for calculations.
@@ -130,6 +143,7 @@ export function renderContributorsDropdown(dropdownContainer, wordArray, textCon
   // --- 3. Build the custom dropdown HTML ---
   const downArrowIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill="currentColor"><path d="M7 10l5 5 5-5H7z"/></svg>`;
 
+  // Render the static parts of the dropdown
   dropdownContainer.innerHTML = `
     <label>Highlight:</label>
     <div class="contributors-dropdown">
@@ -139,13 +153,21 @@ export function renderContributorsDropdown(dropdownContainer, wordArray, textCon
       </button>
       <div class="contributors-dropdown-content">
         <a href="#" data-username="">None</a>
-        ${contributors.map(name => {
-          const count = contributionCounts.get(name);
-          return `<a href="#" data-username="${name}">${name} (${count})</a>`;
-        }).join('')}
       </div>
     </div>
   `;
+
+  // Now, securely create and append the contributor links
+  const contentContainer = dropdownContainer.querySelector('.contributors-dropdown-content');
+
+  contributors.forEach(name => {
+      const count = contributionCounts.get(name);
+      const link = document.createElement('a');
+      link.href = '#';
+      link.dataset.username = name;
+      link.textContent = `${name} (${count})`; // <-- The secure part
+      contentContainer.appendChild(link);
+  });
 
   // --- 4. Add event listeners (no changes needed here) ---
   const dropdown = dropdownContainer.querySelector('.contributors-dropdown');
@@ -192,4 +214,108 @@ export function renderContributorsDropdown(dropdownContainer, wordArray, textCon
       btn.setAttribute('aria-expanded', 'false');
     }
   });
+}
+
+/**
+ * Starts a countdown timer in a given element until the next scheduled seal.
+ * @param {HTMLElement} element - The element to display the countdown in.
+ * @param {string} cronSchedule - The cron schedule string
+ */
+export function startSealCountdown(element, cronSchedule) {
+  let countdownInterval;
+
+  function calculateNextSealDate() {
+    const parts = cronSchedule.split(' ');
+    const minutePart = parts[0];
+    const hourPart = parts[1];
+    const now = new Date();
+
+    const nextSealDate = new Date();
+    nextSealDate.setSeconds(0, 0); // Reset seconds and milliseconds for clean countdowns
+
+    // Case 1: "Every X minutes" schedule (e.g., '*/5 * * * *')
+    if (minutePart.startsWith('*/')) {
+      const interval = parseInt(minutePart.substring(2), 10);
+      const currentMinutes = now.getMinutes();
+      const remainder = currentMinutes % interval;
+      const minutesToAdd = interval - remainder;
+
+      // Add the remaining minutes to the current time
+      nextSealDate.setMinutes(now.getMinutes() + minutesToAdd);
+      return nextSealDate;
+    }
+
+    // Case 2: Specific hours schedule (e.g., '0 8,16,0 * * *')
+    if (hourPart !== '*' && !hourPart.includes('/')) {
+        const scheduledMinute = parseInt(minutePart, 10);
+        const scheduledHours = hourPart.split(',').map(h => parseInt(h, 10)).sort((a, b) => a - b);
+
+        let nextHour = scheduledHours.find(h => h > now.getHours() || (h === now.getHours() && scheduledMinute > now.getMinutes()));
+
+        if (nextHour !== undefined) {
+            // Next seal is later today
+            nextSealDate.setHours(nextHour, scheduledMinute);
+        } else {
+            // Next seal is tomorrow at the first scheduled hour
+            nextSealDate.setDate(now.getDate() + 1);
+            nextSealDate.setHours(scheduledHours[0], scheduledMinute);
+        }
+        return nextSealDate;
+    }
+
+    // Fallback for unsupported cron formats
+    return null;
+  }
+
+  function updateTimer() {
+    const nextSealTime = calculateNextSealDate();
+
+    if (!nextSealTime) {
+      element.textContent = "Invalid schedule";
+      clearInterval(countdownInterval);
+      return;
+    }
+
+    const distance = nextSealTime - new Date().getTime();
+
+    if (distance <= 0) {
+      // It's time to seal, or the time has just passed.
+      // Refresh the page in 5 seconds to show the newly sealed chunk.
+      element.textContent = "Sealing now! Refreshing soon...";
+      clearInterval(countdownInterval);
+      setTimeout(() => window.location.reload(), 5000);
+      return;
+    }
+
+    const hours = Math.floor(distance / (1000 * 60 * 60));
+    const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+    const pad = (num) => String(num).padStart(2, '0');
+    element.textContent = `Next seal in: ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  }
+
+  updateTimer(); // Run once immediately
+  countdownInterval = setInterval(updateTimer, 1000);
+}
+
+/**
+ * Creates a throttled version of a function that only runs at most once
+ * every `delay` milliseconds.
+ * @param {Function} func - The function to throttle.
+ * @param {number} delay - The throttle delay in milliseconds.
+ * @returns {Function} The new throttled function.
+ */
+export function throttle(func, delay) {
+  let inProgress = false;
+  return function(...args) {
+    if (inProgress) {
+      return; // If a function is already in progress, do nothing.
+    }
+    inProgress = true;
+    setTimeout(() => {
+      func.apply(this, args);
+      inProgress = false; // Reset the flag after the delay.
+    }, delay);
+  };
 }

@@ -63,8 +63,8 @@ setInterval(() => {
 /**
  * Fired once on connection to receive the complete initial state.
  */
-socket.on('initialState', ({ currentText, liveSubmissions, nextTickTimestamp: serverTimestamp }) => {
-  ui.renderInitialState(currentText, liveSubmissions);
+socket.on('initialState', ({ initialChunks, liveSubmissions, nextTickTimestamp: serverTimestamp, latestImageUrl }) => {
+  ui.renderInitialState({ currentText: initialChunks, liveSubmissions, latestImageUrl });
   nextTickTimestamp = serverTimestamp;
 });
 
@@ -81,6 +81,20 @@ socket.on('nextTick', ({ nextTickTimestamp: serverTimestamp }) => {
  */
 socket.on('liveFeedUpdated', (feedData) => {
   ui.renderLiveFeed(feedData);
+});
+
+/**
+ * Fired when the server begins generating a new image.
+ */
+socket.on('imageGenerationStarted', () => {
+  ui.showImageGenerationPlaceholder();
+});
+
+/**
+ * Fired when a new chunk is sealed and a new image is available.
+ */
+socket.on('newImageSealed', ({ imageUrl }) => {
+  ui.handleNewSealedImage(imageUrl);
 });
 
 /**

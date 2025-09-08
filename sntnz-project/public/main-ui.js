@@ -6,7 +6,7 @@
 // response to server events and user actions.
 // ============================================================================
 
-import { addTooltipEvents, renderContributorsDropdown } from './shared-ui.js';
+import { addTooltipEvents, renderContributorsDropdown, startSealCountdown, throttle } from './shared-ui.js';
 
 // --- MODULE STATE ---
 // These variables hold the state of the UI throughout the application's lifecycle.
@@ -22,10 +22,18 @@ let noMoreHistory = false; // A flag to indicate if all history has been loaded.
 let isBooting = true; // A flag to manage initial scroll behavior on load.
 let currentUser = { loggedIn: false, username: null }; // Stores the current user's status.
 let userVotes = {}; // Tracks the user's own votes ('up' or 'down') for each word.
+let latestImageUrlOnLoad = null; // Default image URL
+let imageTimeline = []; // Store image data in memory.
+let isImageGenerating = false;
+let pendingImageUrl = null;
 
 // --- DOM ELEMENT REFERENCES ---
 // Caching DOM elements for performance to avoid repeated queries.
 // ----------------------------------------------------------------------------
+const latestImageContainer = document.getElementById('latestImageContainer');
+const timerElement = document.getElementById('sealTimerContainer');
+const imageModal = document.getElementById('imageModal');
+const fullSizeImage = document.getElementById('fullSizeImage');
 const currentTextContainer = document.getElementById('currentTextContainer');
 const currentTextWrapper = document.getElementById('currentTextWrapper');
 const btnUp = document.getElementById('btnScrollUp');
@@ -67,7 +75,9 @@ export function init(socketInstance, config) {
   addNavEvents();
   addTooltipEvents(currentTextContainer, tooltip);
   addInfoModalEvents();
+  addImageModalEvents();
   addFormAndStyleEvents();
+  initSealCountdown(CFG.HISTORY_CHUNK_SCHEDULE_CRON);
 }
 
 
@@ -78,39 +88,102 @@ export function init(socketInstance, config) {
 
 /**
  * Renders the initial state of the application on first load.
- * @param {Array<Object>} currentText - The initial array of word objects.
- * @param {Array<Object>} liveSubmissions - The initial array of live submissions.
+ * @param {Object} initialState - The full initial state object from the server.
  */
-export function renderInitialState(currentText, liveSubmissions) {
-    // --- Clear Containers ---
-    currentTextContainer.innerHTML = '';
+export function renderInitialState({ currentText: initialChunks, liveSubmissions, latestImageUrl }) {
+  currentTextContainer.innerHTML = '';
+  imageTimeline = []; // Clear the timeline on re-init
+  currentWordsArray = []; // Clear the words array
 
-    // --- Render Initial Data ---
-    renderWords(currentText);
-    currentWordsArray = currentText; // Sync client-side array with the initial state.
-    renderLiveFeed(liveSubmissions);
-    renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
+  // Process each chunk to render words and build the timeline
+  initialChunks.forEach(chunk => {
+      if (!chunk.words || chunk.words.length === 0) return;
 
-    // --- Force Scroll to Bottom ---
-    // This complex sequence ensures the view starts at the most recent word,
-    // even on browsers that might interfere with simple scroll assignments on load.
-    const el = currentTextContainer;
-    const prevBehavior = el.style.scrollBehavior;
-    el.style.scrollBehavior = 'auto'; // Temporarily disable smooth scrolling for an instant jump.
+      renderWords(chunk.words); // Render the words from the chunk
+      currentWordsArray.push(...chunk.words); // Add words to our flat array for other features
 
-    // Using requestAnimationFrame ensures these DOM manipulations happen after the
-    // browser has finished its current paint cycle, preventing race conditions.
-    requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight; // Jump to the bottom.
-        requestAnimationFrame(() => {
-            // A second frame is used as a fallback for tricky rendering engines.
-            el.scrollTop = el.scrollHeight;
-            el.style.scrollBehavior = prevBehavior; // Restore original scroll behavior.
-            lastScrollHeight = el.scrollHeight;
-            isBooting = false; // Mark the boot process as complete.
-            updateScrollEffects(); // Update UI elements like scroll fades.
-        });
-    });
+      // If the chunk has an image, add its time range to our timeline
+      if (chunk.imageUrl) {
+          imageTimeline.push({
+              start_ts: chunk.words[0].ts,
+              end_ts: chunk.words[chunk.words.length - 1].ts,
+              imageUrl: chunk.imageUrl
+          });
+      }
+  });
+
+  latestImageUrlOnLoad = latestImageUrl;
+  renderLiveFeed(liveSubmissions);
+  renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
+  renderLatestImage(latestImageUrl);
+
+  // --- Force Scroll to Bottom ---
+  // This complex sequence ensures the view starts at the most recent word,
+  // even on browsers that might interfere with simple scroll assignments on load.
+  const el = currentTextContainer;
+  const prevBehavior = el.style.scrollBehavior;
+  el.style.scrollBehavior = 'auto'; // Temporarily disable smooth scrolling for an instant jump.
+
+  // Using requestAnimationFrame ensures these DOM manipulations happen after the
+  // browser has finished its current paint cycle, preventing race conditions.
+  requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight; // Jump to the bottom.
+      requestAnimationFrame(() => {
+          // A second frame is used as a fallback for tricky rendering engines.
+          el.scrollTop = el.scrollHeight;
+          el.style.scrollBehavior = prevBehavior; // Restore original scroll behavior.
+          lastScrollHeight = el.scrollHeight;
+          isBooting = false; // Mark the boot process as complete.
+          updateScrollEffects(); // Update UI elements like scroll fades.
+      });
+  });
+}
+
+/**
+ * Renders the latest AI-generated image at the top of the page.
+ * If no image URL is provided, it displays a placeholder message.
+ * @param {string|null} imageUrl - The public URL of the image.
+ */
+export function renderLatestImage(imageUrl) {
+  if (!latestImageContainer) return;
+
+  const currentImg = latestImageContainer.querySelector('img');
+
+  if (imageUrl) {
+    // Avoid reloading the same image
+    if (currentImg && currentImg.src === imageUrl) {
+      return;
+    }
+
+    // Preload, then swap in and fade via .loaded
+    const img = new Image();
+    img.alt = 'AI-generated image for the current story chunk';
+    img.onload = () => {
+      latestImageContainer.innerHTML = '';
+      latestImageContainer.appendChild(img);
+    };
+    img.src = imageUrl; // start loading
+  } else {
+    latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chunk</div>`;
+  }
+}
+
+/**
+ * Displays a "Generating..." placeholder in the image container, but only
+ * if the currently displayed image is the most recent one.
+ */
+export function showImageGenerationPlaceholder() {
+  if (!latestImageContainer) return;
+  isImageGenerating = true;
+
+  const currentImg = latestImageContainer.querySelector('img');
+
+  // We only want to show the placeholder if the user is looking at the "live"
+  // edge of the story. We check this by seeing if the currently displayed
+  // image source matches our record of the latest available image.
+  if (currentImg && currentImg.src === latestImageUrlOnLoad) {
+    latestImageContainer.innerHTML = `<div class="image-generating-text">Generating new image...</div>`;
+  }
 }
 
 /**
@@ -415,29 +488,136 @@ export function showFeedback(message, type = 'info') {
 }
 
 /**
- * Manages the state of scroll-related UI elements (fades, buttons).
+ * Manages the state of scroll-related UI elements (fades, buttons)
+ * and updates the main image to accurately match the currently viewed text.
  */
 export function updateScrollEffects() {
   const el = currentTextContainer;
-  const buffer = 1; // A 1px buffer to handle sub-pixel rendering issues.
+  if (!el) return;
+  const buffer = 1;
 
   // --- Infinite Scroll Trigger ---
-  // If the user scrolls to the very top, load older messages.
   if (el.scrollTop < 50 && !isBooting) {
     loadMoreHistory();
   }
 
   // --- Toggle Fades ---
-  // Show a fade effect at the bottom if there is more content to scroll to.
   const showBottomFade = el.scrollHeight - el.scrollTop > el.clientHeight + buffer;
-  currentTextWrapper.classList.toggle('show-top-fade', true); // Top fade is always on.
+  currentTextWrapper.classList.toggle('show-top-fade', true);
   currentTextWrapper.classList.toggle('show-bottom-fade', showBottomFade);
 
   // --- Update Button States ---
   const isAtBottom = !showBottomFade;
   btnDown.disabled = isAtBottom;
   btnCurrent.disabled = isAtBottom;
+
+  // ========================================================================
+  // === UPDATE MAIN IMAGE
+  // ========================================================================
+  // If the user is at the bottom, always show the latest live image
+  if (isImageGenerating) {
+    return;
+  }
+  if (isAtBottom) {
+    renderLatestImage(latestImageUrlOnLoad);
+    return;
+  }
+
+  const allWords = Array.from(el.querySelectorAll('.word'));
+  if (allWords.length === 0) return;
+
+  // --- 1. Find all words currently visible in the container ---
+  const containerRect = el.getBoundingClientRect();
+  const visibleWords = allWords.filter(word => {
+    const wordRect = word.getBoundingClientRect();
+    // A word is visible if its top is above the container's bottom
+    // and its bottom is below the container's top.
+    return wordRect.top < containerRect.bottom && wordRect.bottom > containerRect.top;
+  });
+
+  if (visibleWords.length === 0) {
+    // If no words are visible for any reason, don't change the image.
+    return;
+  }
+
+  // --- 2. Tally the votes for each chunk based on visible words ---
+  const chunkVotes = new Map();
+  let liveWordCount = 0; // Counter for words newer than any image chunk
+  const lastImageChunk = imageTimeline.length > 0 ? imageTimeline[imageTimeline.length - 1] : null;
+
+  visibleWords.forEach(word => {
+    const timestamp = parseInt(word.dataset.ts, 10);
+    const timelineEntry = imageTimeline.find(entry =>
+      timestamp >= entry.start_ts && timestamp <= entry.end_ts
+    );
+
+    if (timelineEntry) {
+      // If the word belongs to a chunk with an image, add a vote for that image.
+      const imageUrl = timelineEntry.imageUrl;
+      chunkVotes.set(imageUrl, (chunkVotes.get(imageUrl) || 0) + 1);
+    } else if (lastImageChunk && timestamp > lastImageChunk.end_ts) {
+      // If the word is newer than our last known image, it's a "live" word.
+      liveWordCount++;
+    }
+  });
+
+  // --- 3. Determine the winning chunk ---
+  let winningImageUrl = null;
+  let maxVotes = 0;
+
+  // Find the historical chunk with the most visible words.
+  for (const [imageUrl, votes] of chunkVotes.entries()) {
+    if (votes > maxVotes) {
+      maxVotes = votes;
+      winningImageUrl = imageUrl;
+    }
+  }
+
+  // --- 4. Compare the winner with "live" words and set the final image ---
+  let finalImageUrl = null;
+  if (liveWordCount > maxVotes) {
+    // If there are more live words on screen than words from any single
+    // historical chunk, show the most recent image.
+    finalImageUrl = latestImageUrlOnLoad;
+  } else {
+    // Otherwise, show the image from the historical chunk that won the vote.
+    // This will be null if only old, imageless chunks are visible.
+    finalImageUrl = winningImageUrl;
+  }
+
+  renderLatestImage(finalImageUrl);
 }
+
+/**
+ * Handles the arrival of a new sealed image from the server.
+ * It only updates the visible image if the user is currently scrolled to the bottom.
+ * This prevents the image from changing unexpectedly while a user is reading past history.
+ * @param {string} imageUrl - The URL of the newly generated image.
+ */
+export function handleNewSealedImage(imageUrl) {
+  pendingImageUrl = imageUrl;
+
+  // Preload the image, then atomically swap it in.
+  const img = new Image();
+  img.alt = 'AI-generated image for the current story chunk';
+  img.onload = () => {
+    const el = currentTextContainer;
+    const scrollBuffer = 5;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= scrollBuffer;
+
+    // Update state unconditionally
+    latestImageUrlOnLoad = imageUrl;
+    isImageGenerating = false;
+
+    // Only swap the placeholder immediately if user is at bottom
+    if (isAtBottom && latestImageContainer) {
+      latestImageContainer.innerHTML = '';
+      latestImageContainer.appendChild(img);
+    }
+  };
+  img.src = imageUrl;
+}
+
 
 /**
  * Removes all `<span>` or `<br>` elements on the first rendered line of the text container.
@@ -492,7 +672,9 @@ function addNavEvents() {
     window.location.href = '/history.html';
   });
   // The scroll effects need to be updated continuously as the user scrolls.
-  currentTextContainer.addEventListener('scroll', updateScrollEffects);
+  // Throttle the scroll handler to run at most once every 50ms
+  const throttledScrollHandler = throttle(updateScrollEffects, 50);
+  currentTextContainer.addEventListener('scroll', throttledScrollHandler);
 }
 
 /**
@@ -503,6 +685,31 @@ function addInfoModalEvents() {
   btnInfo.addEventListener('click', () => infoModal.classList.add('visible'));
   modalClose.addEventListener('click', () => infoModal.classList.remove('visible'));
   modalOverlay.addEventListener('click', () => infoModal.classList.remove('visible'));
+}
+
+/**
+ * Attaches click handlers to open and close the image modal.
+ */
+function addImageModalEvents() {
+  if (!imageModal || !latestImageContainer) return;
+
+  const overlay = imageModal.querySelector('.modal-overlay');
+  const closeBtn = imageModal.querySelector('.modal-close');
+  const fullResBtn = imageModal.querySelector('#fullResBtn');
+
+  // Open modal when an image is clicked
+  latestImageContainer.addEventListener('click', (e) => {
+    if (e.target.tagName === 'IMG') {
+      const imgSrc = e.target.src;
+      fullSizeImage.src = imgSrc;
+      fullResBtn.href = imgSrc;
+      imageModal.classList.add('visible');
+    }
+  });
+
+  // Close modal listeners
+  closeBtn.addEventListener('click', () => imageModal.classList.remove('visible'));
+  overlay.addEventListener('click', () => imageModal.classList.remove('visible'));
 }
 
 /**
@@ -574,82 +781,125 @@ function addFormAndStyleEvents() {
 
 /**
  * Fetches older words from the server and prepends them to the display.
- * Implements the "infinite scroll" feature for browsing history.
+ * This function implements the "infinite scroll" feature for browsing history
+ * and updates the in-memory image timeline.
  */
 async function loadMoreHistory() {
-  // If we already know there's no more history, or we are loading, do nothing.
-  if (isLoadingMore || currentWordsArray.length === 0) return;
-  if (noMoreHistory) {
-    if (currentWordsArray.length > 100) {
-      showFeedback("History buffer limit reached.", "warning");
-    }
+  // --- PRE-FLIGHT CHECKS ---
+  // If we are already in the middle of loading, or if we know there's no more history,
+  // or if the initial text array is empty, exit immediately to prevent errors or duplicate requests.
+  if (isLoadingMore || noMoreHistory || currentWordsArray.length === 0) {
     return;
   }
+
+  // --- SET LOADING STATE ---
+  // Set the flag to true to prevent this function from being called again while this request is in progress.
   isLoadingMore = true;
 
-
-  // Get the timestamp of the oldest word we currently have.
+  // Get the timestamp of the very first (oldest) word currently displayed on the client.
+  // This will be used as a cursor to ask the server for words *before* this point.
   const oldestTimestamp = currentWordsArray[0].ts;
 
   try {
-    // --- Fetch Data ---
+    // --- API REQUEST ---
+    // Fetch the older history from the server, passing our oldest timestamp as a query parameter.
+    // The server will return data already grouped by chunks.
     const response = await fetch(`/api/history/before?ts=${oldestTimestamp}&limit=50`);
-    const olderWords = await response.json();
+    const chunkGroups = await response.json(); // Data is an array of objects: [{imageUrl, words}, ...]
 
-    if (olderWords.length > 0) {
+    // --- PROCESS RESPONSE ---
+    // Check if the server returned any new chunk groups.
+    if (chunkGroups.length > 0) {
       const container = currentTextContainer;
-      const oldScrollHeight = container.scrollHeight; // Store height before adding new content.
 
-      // --- Prepend Words to DOM ---
-      // The server returns words newest-first (e.g., [word50, word49, ...]).
-      // Prepending them in this order results in the correct final order in the DOM
-      // (e.g., prepend(50), then prepend(49) -> DOM is [49, 50, ...]).
-      olderWords.forEach(wordData => {
-        const wordSpan = document.createElement('span');
-        wordSpan.className = 'word';
-        wordSpan.dataset.ts = wordData.ts;
+      // Store the container's scroll height *before* adding new content.
+      // This is crucial for maintaining the user's scroll position so their view doesn't jump.
+      const oldScrollHeight = container.scrollHeight;
 
-        // Handle newlines when prepending.
-        if(wordData.styles && wordData.styles.newline){
-            const br = document.createElement('br');
-            container.prepend(br);
+      // This will temporarily hold the timeline data for the new chunks we just loaded.
+      const newTimelineEntries = [];
+
+      // --- RENDER NEW CONTENT & PREPARE TIMELINE DATA ---
+      // Loop through each chunk group returned by the server.
+      chunkGroups.forEach(group => {
+        // First, prepend all the words from this chunk to the text container.
+        group.words.forEach(wordData => {
+            // Defensively create a 'styles' object to prevent errors if it's missing on old data.
+            const styles = wordData.styles || {};
+            const wordSpan = document.createElement('span');
+            wordSpan.className = 'word';
+
+            // Store all metadata on the element itself using data-* attributes for the tooltip.
+            wordSpan.dataset.ts = wordData.ts;
+            wordSpan.dataset.username = wordData.username;
+            wordSpan.dataset.count = wordData.count;
+            wordSpan.dataset.total = wordData.total;
+            wordSpan.dataset.pct = wordData.pct;
+
+            // Handle newlines by prepending a <br> tag before the word.
+            if (styles.newline) {
+                container.prepend(document.createElement('br'));
+            }
+
+            // Set the text content and apply styles using our safe 'styles' object.
+            wordSpan.textContent = wordData.word;
+            wordSpan.style.fontWeight = styles.bold ? 'bold' : 'normal';
+            wordSpan.style.fontStyle = styles.italic ? 'italic' : 'normal';
+            wordSpan.style.textDecoration = styles.underline ? 'underline' : 'none';
+
+            // Prepend a space for separation, then prepend the word span itself.
+            // Using prepend() correctly builds the content in reverse order at the top.
+            container.prepend(document.createTextNode(' '));
+            container.prepend(wordSpan);
+        });
+
+        // Next, if this chunk has an image, create a timeline entry for it.
+        if (group.imageUrl && group.words.length > 0) {
+            newTimelineEntries.push({
+                start_ts: group.words[0].ts, // Timestamp of the first word in this chunk
+                end_ts: group.words[group.words.length - 1].ts, // Timestamp of the last word
+                imageUrl: group.imageUrl
+            });
         }
-
-        wordSpan.dataset.username = wordData.username;
-        wordSpan.dataset.count = wordData.count;
-        wordSpan.dataset.total = wordData.total;
-        wordSpan.dataset.pct = wordData.pct;
-        wordSpan.textContent = wordData.word;
-        wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
-        wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
-        wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
-
-        container.prepend(document.createTextNode(' '));
-        container.prepend(wordSpan);
       });
 
-      // Update the contributors dropdown with the new, larger list of contributors
-      renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
+      // --- UPDATE CLIENT STATE ---
+      // Prepend the new timeline entries to our main in-memory timeline.
+      imageTimeline = [...newTimelineEntries, ...imageTimeline];
 
-      // --- Update Client-side Array ---
-      // Reverse the fetched words to get them in chronological order before adding to our array.
-      const correctlyOrderedOlderWords = olderWords.reverse();
-      currentWordsArray = [...correctlyOrderedOlderWords, ...currentWordsArray];
+      // Flatten the words from all new chunks into a single array.
+      const allNewWords = chunkGroups.flatMap(g => g.words);
+      // Prepend this new array of words to our main client-side word array.
+      currentWordsArray = [...allNewWords, ...currentWordsArray];
+      // Re-render the contributors dropdown with the updated list of authors.
+      renderContributorsDropdown(mainContributorsContainer, currentWordsArray, container);
 
-      // --- Maintain Scroll Position ---
-      // Adjust the scroll position so the user's view doesn't jump.
+      // --- MAINTAIN SCROLL POSITION ---
+      // Calculate the new total height of the content.
       const newScrollHeight = container.scrollHeight;
+      // Adjust the scroll position so the user's view remains on the same word they were looking at.
       container.scrollTop = newScrollHeight - oldScrollHeight;
+
     } else {
-      if (currentWordsArray.length > 100) {
-        showFeedback("History buffer limit reached.", "warning");
-      }
-     noMoreHistory = true;
+      // If the server returns an empty array, it means we've reached the beginning of history.
+      noMoreHistory = true; // Set this flag to prevent future requests.
     }
   } catch (error) {
     console.error("Failed to load more history:", error);
   } finally {
-    // Ensure the loading flag is always reset, even on error.
+    // --- RESET LOADING STATE ---
+    // Whether the request succeeded or failed, reset the loading flag so the user can trigger it again.
     isLoadingMore = false;
+  }
+}
+
+/**
+ * Finds the seal timer container on the main page and starts the countdown.
+ * @param {string} cronSchedule - The cron schedule for the next seal.
+ */
+export function initSealCountdown(cronSchedule) {
+  if (timerElement && cronSchedule) {
+    // Call the shared countdown function
+    startSealCountdown(timerElement, cronSchedule);
   }
 }

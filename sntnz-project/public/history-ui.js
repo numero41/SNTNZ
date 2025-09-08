@@ -5,15 +5,16 @@
  * It imports shared UI components like the tooltip.
  */
 
-import { addTooltipEvents } from './shared-ui.js';
+import { addTooltipEvents, startSealCountdown } from './shared-ui.js';
 export { renderContributorsDropdown } from './shared-ui.js';
 
 /**
  * Renders the complete history by iterating through server-generated chunks.
  * @param {HTMLElement} container - The main history container element.
  * @param {Array<Object>} chunks - The array of chunk data objects.
+ * @param {string} cronSchedule - The cron schedule for the next seal.
  */
-export function renderHistory(container, chunks) {
+export function renderHistory(container, chunks, cronSchedule) {
   // --- Handle No Data ---
   // If the server returns no chunks, display a user-friendly message.
   if (!chunks || chunks.length === 0) {
@@ -38,6 +39,62 @@ export function renderHistory(container, chunks) {
   // --- Render to the DOM ---
   container.innerHTML = ''; // Clear any existing content (like a loading spinner).
   container.appendChild(fragment); // Append the fully constructed content.
+
+  // --- After rendering, find the timer element and start the countdown ---
+  const timerElement = container.querySelector('.chunk-seal-timer');
+  if (timerElement && cronSchedule) {
+    startSealCountdown(timerElement, cronSchedule);
+  }
+}
+
+/**
+ * Creates an HTML span for a single word object.
+ * @param {object} wordData - The data for one word.
+ * @returns {string} The HTML string for the span.
+ */
+function createWordSpan(wordData) {
+  const wordSpan = document.createElement('span');
+  wordSpan.className = 'word';
+
+  // Set Data Attributes
+  wordSpan.dataset.ts = wordData.ts;
+  wordSpan.dataset.username = wordData.username;
+  wordSpan.dataset.pct = wordData.pct.toFixed(2);
+  wordSpan.dataset.count = wordData.count;
+  wordSpan.dataset.total = wordData.total;
+
+  // Set Content and Styles securely
+  wordSpan.textContent = wordData.word; // <-- The secure part
+  wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
+  wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
+  wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
+
+  return wordSpan;
+}
+
+/**
+ * Appends a single word to the existing live chunk without a full page reload.
+ * @param {object} wordData - The data for the new word.
+ */
+export function appendWordToLiveChunk(wordData) {
+  // Find the text block of the live chunk (which contains the countdown timer).
+  const timerElement = document.querySelector('.chunk-seal-timer');
+  if (!timerElement) return; // No live chunk on the page (e.g., viewing an old day)
+
+  const liveTextBlock = timerElement.closest('.history-chunk')?.querySelector('.history-text-block');
+  if (!liveTextBlock) return;
+
+  // Create the new word element securely
+  const wordSpan = createWordSpan(wordData);
+
+  // Append a space and then the new word element
+  liveTextBlock.appendChild(document.createTextNode(' '));
+
+  // Handle newlines before appending the word
+  if (wordData.styles.newline) {
+      liveTextBlock.appendChild(document.createElement('br'));
+  }
+  liveTextBlock.appendChild(wordSpan);
 }
 
 /**
@@ -46,48 +103,51 @@ export function renderHistory(container, chunks) {
  * @returns {HTMLElement | null} The fully constructed div element or null if data is invalid.
  */
 function createChunkElement(chunkData) {
+  // 1. CREATE THE MAIN CONTAINER
+  //    We start by creating the main 'div' that will hold everything for this chunk.
   const el = document.createElement('div');
   el.className = 'history-chunk';
+  //    Assign the chunk's unique hash as the element's ID. This allows for deep-linking (e.g., page.html#hash).
+  el.id = chunkData.hash;
+  //    Also store the hash in a data attribute, which is a standard way to attach data for JS to read easily.
+  el.dataset.hash = chunkData.hash;
 
-  // --- Format Timestamp ---
+  // 2. FORMAT METADATA
+  //    Convert the raw timestamp (a number) into a human-readable HH:MM format.
   const date = new Date(chunkData.ts);
-  const hh = String(date.getHours()).padStart(2, '0'); // Ensures two digits (e.g., 09).
+  const hh = String(date.getHours()).padStart(2, '0'); // padStart ensures we get '09' instead of '9'.
   const mm = String(date.getMinutes()).padStart(2, '0');
   const time = `${hh}:${mm}`;
 
-  // --- Build the Text Content HTML ---
-  // Maps over each word object to create a styled <span> for it.
-  const textContent = chunkData.words.map(wordData => {
-    // Create the base HTML for the styled word
-    const styleOpen = `${wordData.styles.bold ? '<b>':''}${wordData.styles.italic ? '<i>':''}${wordData.styles.underline ? '<u>':''}`;
-    const styleClose = `${wordData.styles.underline ? '</u>':''}${wordData.styles.italic ? '</i>':''}${wordData.styles.bold ? '</b>':''}`;
-    const wordHtml = `<span class="word"
-      data-ts="${wordData.ts}"
-      data-username="${wordData.username}"
-      data-pct="${wordData.pct}"
-      data-count="${wordData.count}"
-      data-total="${wordData.total}">
-        ${styleOpen}${wordData.word}${styleClose}
-    </span>`;
-
-    // NEW: If the word has a newline style, prepend a <br> tag
-    if (wordData.styles.newline) {
-      return `<br>${wordHtml}`;
-    }
-
-    return wordHtml;
-  }).join(' '); // Join all the word spans with a space in between.
-
-  // --- Define SVG Icon ---
+  // 3. DEFINE STATIC ASSETS AND CONDITIONAL HTML
+  //    Store SVG icon markup in a variable for reusability.
   const shareIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3z"></path></svg>`;
 
-  // --- Assemble the Final Element HTML ---
-  // Using a template literal for clean and readable HTML structure.
+  //    Determine what to display for the hash. If the chunk is "live" (not yet sealed),
+  //    show a countdown timer. Otherwise, show the shortened, clickable hash.
+  const hashDisplay = chunkData.isLive
+    ? `<span class="chunk-seal-timer" title="These words are not yet sealed.">Calculating...</span>`
+    : `<span class="chunk-hash" title="Copy Hash" data-hash="${chunkData.hash}">${chunkData.hash.substring(0, 12)}...</span>`;
+
+  //    If an imageUrl exists for this chunk, prepare the image HTML. Otherwise, this remains an empty string.
+  let imageHtml = '';
+  if (chunkData.imageUrl) {
+    const altText = `AI image for chunk: ${chunkData.text.substring(0, 100)}...`;
+    imageHtml = `
+      <div class="image-container">
+        <img src="${chunkData.imageUrl}" alt="${altText}" class="chunk-image">
+      </div>
+    `;
+  }
+
+  // 4. ASSEMBLE THE STATIC (NON-USER-GENERATED) PARTS
+  //    We use '.innerHTML' here, which is safe because all the content (`time`, `hashDisplay`, `shareIcon`, `imageHtml`)
+  //    is generated by our own code, not by users. This is more efficient than creating each of these elements one by one.
   el.innerHTML = `
     <div class="chunk-meta">
       <div class="chunk-info">
         <span class="chunk-time">${time}</span>
-        <span class="chunk-hash" title="Copy Hash" data-hash="${chunkData.hash}">${chunkData.hash.substring(0, 12)}...</span>
+        ${hashDisplay}
       </div>
       <div class="chunk-actions">
         <button class="share-btn" data-text="${chunkData.text}">
@@ -95,8 +155,36 @@ function createChunkElement(chunkData) {
         </button>
       </div>
     </div>
-    <div class="history-text-block">${textContent}</div>
+    ${imageHtml}
   `;
+
+  // 5. **SECURELY** BUILD AND APPEND THE TEXT BLOCK
+  //    This is the most critical part for security. We will now build the story text
+  //    element by element, never using '.innerHTML' with user-provided content.
+  const textBlock = document.createElement('div');
+  textBlock.className = 'history-text-block';
+
+  //    Loop through every word object in the chunk's data.
+  chunkData.words.forEach(wordData => {
+    //    First, check if this word is meant to start a new line.
+    if (wordData.styles.newline) {
+      //      If so, append a <br> element.
+      textBlock.appendChild(document.createElement('br'));
+    }
+
+    //    Next, call our secure `createWordSpan` function. This function returns a fully-formed,
+    //    safe `<span>` element where the word content has been set using '.textContent'.
+    const wordSpan = createWordSpan(wordData);
+    textBlock.appendChild(wordSpan); // Append the safe element to our text block.
+
+    //    Finally, add a space after each word. We use `createTextNode` to ensure the space is treated as text.
+    textBlock.appendChild(document.createTextNode(' '));
+  });
+
+  // 6. FINALIZE AND RETURN
+  //    Append the now fully-populated (and secure) text block to our main chunk element.
+  el.appendChild(textBlock);
+  //    Return the complete, safe-to-render chunk element.
   return el;
 }
 
@@ -107,41 +195,48 @@ function createChunkElement(chunkData) {
  * @param {string} currentDate - The currently selected date.
  */
 export function renderPagination(container, dates, currentDate) {
-  // --- Simple Case: Not enough dates to need complex pagination ---
+  // If there are 3 or fewer dates, we just display them all in chronological order.
   if (dates.length <= 3) {
-    const linksHtml = dates.map(date => `<a href="?date=${date}" class="${date === currentDate ? 'current' : ''}">${date}</a>`).join('');
+    const linksHtml = [...dates].reverse().map(date => `<a href="?date=${date}" class="${date === currentDate ? 'current' : ''}">${date}</a>`).join('');
     container.innerHTML = linksHtml;
     return;
   }
 
   // --- Complex Case: Create a "sliding window" of dates ---
-  const windowSize = 3; // How many date links to show at once.
+  const windowSize = 3;
   const currentIndex = dates.indexOf(currentDate);
 
-  // Calculate the starting index for the slice of dates to show.
-  // This ensures the current date is centered if possible.
   let start = Math.max(0, currentIndex - Math.floor(windowSize / 2));
-  // This prevents the window from going past the end of the array.
   start = Math.min(start, dates.length - windowSize);
 
   const datesToShow = dates.slice(start, start + windowSize);
 
   // --- Define Navigation Links ---
-  const firstLink = dates[0];
-  const prevLink = dates[Math.max(0, currentIndex - 1)]; // Won't go below the first index.
-  const nextLink = dates[Math.min(dates.length - 1, currentIndex + 1)]; // Won't go past the last index.
-  const lastLink = dates[dates.length - 1];
+  // Remember: dates array is newest-to-oldest.
+  const newestLink = dates[0];
+  const oldestLink = dates[dates.length - 1];
+
+  // A "newer" date has a smaller index, an "older" date has a larger index.
+  const newerDateLink = dates[Math.max(0, currentIndex - 1)];
+  const olderDateLink = dates[Math.min(dates.length - 1, currentIndex + 1)];
 
   // --- Determine if Arrow Buttons Should be Disabled ---
-  const isAtStart = currentIndex === 0;
-  const isAtEnd = currentIndex === dates.length - 1;
+  const isAtNewest = currentIndex === 0;
+  const isAtOldest = currentIndex === dates.length - 1;
 
   // --- Build HTML for each part of the pagination control ---
-  const firstButton = `<a href="?date=${firstLink}" class="nav-arrow" ${isAtStart ? 'disabled' : ''}>&lt;&lt;</a>`;
-  const prevButton = `<a href="?date=${prevLink}" class="nav-arrow" ${isAtStart ? 'disabled' : ''}>&lt;</a>`;
-  const dateLinks = datesToShow.map(date => `<a href="?date=${date}" class="${date === currentDate ? 'current' : ''}">${date}</a>`).join('');
-  const nextButton = `<a href="?date=${nextLink}" class="nav-arrow" ${isAtEnd ? 'disabled' : ''}>&gt;</a>`;
-  const lastButton = `<a href="?date=${lastLink}" class="nav-arrow" ${isAtEnd ? 'disabled' : ''}>&gt;&gt;</a>`;
+  // '<<' should go to the OLDEST date.
+  const firstButton = `<a href="?date=${oldestLink}" class="nav-arrow" ${isAtOldest ? 'disabled' : ''}>&lt;&lt;</a>`;
+  // '<' should go to an OLDER date.
+  const prevButton = `<a href="?date=${olderDateLink}" class="nav-arrow" ${isAtOldest ? 'disabled' : ''}>&lt;</a>`;
+
+  // Reverse the display slice to show dates chronologically (oldest, middle, newest).
+  const dateLinks = datesToShow.reverse().map(date => `<a href="?date=${date}" class="${date === currentDate ? 'current' : ''}">${date}</a>`).join('');
+
+  // '>' should go to a NEWER date.
+  const nextButton = `<a href="?date=${newerDateLink}" class="nav-arrow" ${isAtNewest ? 'disabled' : ''}>&gt;</a>`;
+  // '>>' should go to the NEWEST date.
+  const lastButton = `<a href="?date=${newestLink}" class="nav-arrow" ${isAtNewest ? 'disabled' : ''}>&gt;&gt;</a>`;
 
   // --- Assemble and Render the Final HTML ---
   container.innerHTML = firstButton + prevButton + dateLinks + nextButton + lastButton;
@@ -165,8 +260,13 @@ export function setupEventListeners(historyContainer, tooltip) {
     // e.target.closest() finds the nearest ancestor that matches the selector.
     const shareButton = e.target.closest('.share-btn');
     if (shareButton) {
+      // Find the parent chunk element to get its hash
+      const chunkElement = shareButton.closest('.history-chunk');
+      const chunkHash = chunkElement.dataset.hash;
+      if (!chunkHash) return;
+
       const textToShare = shareButton.dataset.text;
-      const url = window.location.href;
+      const url = `${window.location.origin}/chunk/${chunkHash}`;
       const shareData = { title: 'snTnz History Chunk', text: `"${textToShare}"`, url: url };
 
       // Progressive Enhancement: Use the modern Web Share API if available.

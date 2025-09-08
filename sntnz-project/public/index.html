@@ -6,6 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>snTnz</title>
+  <link rel="icon" href="/logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;200;400;700&display=swap" rel="stylesheet">
@@ -30,15 +31,11 @@
       ========================================================== -->
       <button id="btnInfo" class="headline info-btn">A Surreal Story. [?]</button>
 
-      <!-- =====================================================================
-            NAV ARROWS (UP / CURRENT / DOWN / FULL HISTORY)
-      ===================================================================== -->
-      <div id="historyNav" class="history-nav">
-        <button id="btnScrollUp" class="nav-arrow" aria-label="Scroll up">△</button>
-        <button id="btnScrollDown" class="nav-arrow" aria-label="Scroll down">▽</button>
-        <button id="btnScrollCurrent" class="nav-arrow nav-current" aria-label="Jump to current">▽</button>
-        <button id="btnOpenHistory"  class="nav-arrow" aria-label="Open full history">☰</button>
-      </div>
+      <!-- =========================================================
+           LAST GENERATED IMAGE
+      ========================================================== -->
+      <section id="latestImageContainer" class="image-container"></section>
+      <section id="sealTimerContainer" class="seal-timer-container"></section>
 
       <!-- =========================================================
            CURRENT TEXT DISPLAY
@@ -48,6 +45,16 @@
             <div id="currentTextContainer" class="current-text scrollable"></div>
         </div>
       </section>
+
+      <!-- =====================================================================
+            NAV ARROWS (UP / CURRENT / DOWN / FULL HISTORY)
+      ===================================================================== -->
+      <div id="historyNav" class="history-nav">
+        <button id="btnScrollUp" class="nav-arrow" aria-label="Scroll up">△</button>
+        <button id="btnScrollDown" class="nav-arrow" aria-label="Scroll down">▽</button>
+        <button id="btnScrollCurrent" class="nav-arrow nav-current" aria-label="Jump to current">▽</button>
+        <button id="btnOpenHistory"  class="nav-arrow" aria-label="Open full history">☰</button>
+      </div>
 
       <!-- =========================================================
            WUSERS FILTER
@@ -113,37 +120,68 @@
       <div class="modal-content">
         <button class="modal-close" aria-label="Close">&times;</button>
         <h2>How It Works</h2>
+
         <p>
-          This is a collaborative writing experiment to create a story that never ends, built one word at a time by everyone.
+          Welcome to a living, collaborative story that never ends—built one word at a time by everyone.
+          It’s fast, fair, and <strong>fully autonomous</strong>.
         </p>
+
         <ul>
           <li><strong>Submit & Style:</strong> Type a word and use the buttons to make it bold, italic, underlined,
             or start a new line (↵) before submitting.</li>
-          <li><strong>Vote:</strong> Use the up (▲) and down (▼) arrows to vote for words in the live feed.
-            You cannot vote on your own submissions.
-            The winner is determined by the highest net score (upvotes minus downvotes).</li>
-          <li><strong>Win:</strong> Every <strong>60 seconds</strong>, the round ends.
-            The word with the highest score (must be greater than zero) is permanently added to the story.
+
+          <li><strong>Vote:</strong> Use ▲ / ▼ to vote on words in the live feed.
+            You can’t vote on your own submissions. The winner is the highest net score (upvotes minus downvotes).</li>
+
+          <li><strong>Win the Round:</strong> Every <strong>60 seconds</strong> the round ends.
+            The word with the highest score (must be &gt; 0) is permanently added to the story.
             It will be automatically capitalized if it begins a new sentence.</li>
-          <li><strong>Archive:</strong> Every <strong>250 characters</strong>,
-            the story is sealed into a permanent "chunk" with a unique cryptographic hash,
-            ensuring its history can never be altered.</li>
+
+          <li><strong>Seal & Archive:</strong> <strong>Four times a day</strong>, the story is sealed into a permanent
+            “chunk” with a unique cryptographic hash so its history can’t be altered.</li>
+
+          <li><strong>Automatic Images:</strong> On each seal, an AI illustration is automatically generated
+            to match the newly sealed chunk. A placeholder appears while it renders; the image swaps in as soon as it’s ready.</li>
         </ul>
 
         <p>
-          <strong>The Bot:</strong> To keep the narrative flowing, an AI-powered bot (<em>sntnz_bot</em>)
-          will contribute a word if the live feed has been empty for 3 minutes.
-          Its suggestions can be voted on just like any other submission.
+          <strong>The Bot:</strong> To keep things moving, an AI helper (<em>sntnz_bot</em>) will propose a word
+          if the feed has been quiet for 3 minutes. Its words can be voted on like any others.
         </p>
 
         <p>
-          <strong>The Future:</strong> The vision is to grow this into a new form of digital literature.
-          Future plans include broadcasting the story to social networks and implementing a system using blockchain wallets</strong>
-          to give contributors true ownership of the parts of the story they helped create.
+          <strong>Fully Independent:</strong> No manual steps. The system runs the rounds, seals the story,
+          generates the art, <strong>and posts to social networks automatically at every seal</strong>.
+        </p>
+
+        <p>
+          <strong>Why it’s cool:</strong> It’s a new kind of digital literature—part game, part collective improv,
+          part autonomous art machine. Jump in, shape the narrative, and watch your choices get sealed into history.
+        </p>
+
+        <p>
+          <strong>What’s next:</strong> Broader broadcasting and a wallet-based system to
+          give contributors true ownership of the parts they helped create.
         </p>
       </div>
     </div>
-  </main>
+
+
+  <!-- =========================================================
+        IMAGE MODAL
+  ========================================================== -->
+  <div id="imageModal" class="modal-container">
+    <div class="modal-overlay"></div>
+    <div class="modal-content image-modal-content">
+
+      <div class="image-modal-wrapper">
+        <img id="fullSizeImage" src="" alt="Full size view">
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
+
+      <a id="fullResBtn" href="#" target="_blank" rel="noopener noreferrer" class="full-res-btn">View Full Resolution</a>
+    </div>
+  </div>
 
   <!-- =========================================================
         WORDS TOOLTIPS

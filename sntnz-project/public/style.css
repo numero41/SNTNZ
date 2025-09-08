@@ -16,6 +16,8 @@
   --color-shadow: rgba(0, 0, 0, 0.15);
   --color-user-highlight: #e7a33c4d;
   --color-secondary: var(--color-white);
+  --color-black-transp: rgba(0, 0, 0, 0.6);
+  --color-black-transp-hover: rgba(0, 0, 0, 0.9);
 
   /* Typography */
   --font-main: 'IBM Plex Mono', monospace;
@@ -378,6 +380,124 @@ body {
   border-width: var(--border-width);
 }
 
+/* ============================================================================
+   --- IMAGE DISPLAYS ---
+============================================================================ */
+
+/* Main Page - Latest Image */
+.image-container {
+  width: 100%;
+  max-width: var(--content-width);
+  margin-bottom: 3rem;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  box-shadow: 0 4px 15px var(--color-shadow);
+  aspect-ratio: 1 / 1;
+  background-color: var(--color-white);
+}
+
+.image-container img {
+  width: 100%;
+  height: auto;
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.image-marker {
+  display: none;
+}
+
+/* Placeholder text when no image is available */
+.image-placeholder-text,
+.image-generating-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  color: var(--color-grey0);
+  font-size: 0.9rem;
+  text-align: center;
+  user-select: none;
+}
+
+/* History Page - Chunk Image */
+.chunk-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 1rem;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+/* Allows to align the x vutton on the top right of the image */
+.image-modal-wrapper {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  pointer-events: auto;
+}
+
+/* Make the image modal content area larger and responsive */
+.modal-content.image-modal-content {
+  background: transparent;
+  max-width: 90vw;
+  max-height: 85vh;
+  padding: 0;
+  box-shadow: none;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Style the image itself within the modal */
+.image-modal-content img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  box-shadow: none;
+  border-radius: var(--border-radius);
+}
+
+/* Style for the "View Full Resolution" button */
+.full-res-btn {
+  position: absolute;
+  bottom: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background-color: var(--color-black-transp);
+  color: var(--color-white);
+  text-decoration: none;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+  opacity: 0.8;
+  pointer-events: auto;
+}
+
+.full-res-btn:hover {
+  background-color: var(--color-black-transp-hover);
+  opacity: 1;
+}
+
+/* Seal timer on the main page */
+.seal-timer-container {
+  font-size: 0.9rem;
+  color: var(--color-grey2);
+  text-align: center;
+  margin: -2.5rem 0 2rem 0;
+  height: 1rem;
+}
 
 /* =====================================================================
    --- NAV BUTTONS ---
@@ -582,14 +702,14 @@ body {
   width: 100%;
   height: 100%;
   z-index: 1000;
-  display: none; /* Hidden by default */
+  display: none;
   align-items: center;
   justify-content: center;
 }
 
 /* Toggled visible state */
 .modal-container.visible {
-  display: flex; /* Shown with JavaScript */
+  display: flex;
 }
 
 /* Backdrop/scrim */
@@ -626,19 +746,28 @@ body {
 /* Close (×) button */
 .modal-close {
   position: absolute;
-  top: 10px;
-  right: 15px;
-  background: none;
+  top: 20px;
+  right: 20px;
+  background-color: var(--color-black-transp);
+  color: var(--color-white);
+  font-size: 1.2rem;
+  text-decoration: none;
+  border-radius: 5px;
   border: none;
-  font-size: 2rem;
-  color: var(--color-grey1);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: background-color 0.2s ease;
+  opacity: 0.8;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  text-align: center;
+  padding: 0;
+  z-index: 10;
 }
 
 /* Close hover */
 .modal-close:hover {
-  color: var(--color-black);
+  color: var(--color-black-transp-hover);
 }
 
 
@@ -669,7 +798,7 @@ body {
   margin-top: 5px;
   background-color: var(--color-white);
   min-width: 100px;
-  box-shadow: 0px 8px 16px 0px var(--color-shadow);
+  box-shadow: 0 4px 15px var(--color-shadow);
   border: var(--border-light);
   border-radius: var(--border-radius);
   font-size: 0.9rem;
@@ -744,7 +873,7 @@ body {
   margin-top: 5px;
   background-color: var(--color-white);
   min-width: 160px;
-  box-shadow: 0px 8px 16px 0px var(--color-shadow);
+  box-shadow: 0 4px 15px var(--color-shadow);
   border: var(--border-light);
   border-radius: var(--border-radius);
   max-height: 200px;
@@ -867,6 +996,7 @@ body {
   transition: opacity 0.2s ease-in-out;
   z-index: 500;
   white-space: nowrap;
+  box-shadow: 0 4px 15px var(--color-shadow);
 }
 .word-tooltip.visible {
   visibility: visible;
@@ -920,7 +1050,7 @@ body {
 /* Disabled pagination arrows/links */
 .pagination-nav a[disabled] {
   color: var(--color-grey1);
-  pointer-events: none; /* Prevents clicking on disabled links */
+  pointer-events: none;
   background: transparent;
   border: none;
 }
@@ -931,6 +1061,9 @@ body {
 
 /* Chunk wrapper */
 .history-chunk {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   border-bottom: 1px dotted var(--color-grey2);
   padding-bottom: 1.5rem;
   margin-bottom: 1.5rem;
@@ -942,6 +1075,7 @@ body {
 /* Chunk metadata row */
 .chunk-meta {
   display: flex;
+  width: 100%;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
