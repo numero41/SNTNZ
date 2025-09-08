@@ -11,12 +11,11 @@
 const isProduction = process.env.NODE_ENV === 'production';
 
 const ROUND_DURATION_SECONDS_PROD = 60;
+const BOT_INTERVAL_MINUTES_PROD = 1;
+const HISTORY_CHUNK_SCHEDULE_CRON_PROD = '0 6,12,18,0 * * *';
+
 const ROUND_DURATION_SECONDS_DEV = 3;
-
-const BOT_INTERVAL_MINUTES_PROD = 3;
 const BOT_INTERVAL_MINUTES_DEV = 0.05;
-
-const HISTORY_CHUNK_SCHEDULE_CRON_PROD = '0 8,16,0 * * *';
 const HISTORY_CHUNK_SCHEDULE_CRON_DEV = '*/2 * * * *';
 
 module.exports = {
