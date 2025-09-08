@@ -293,8 +293,8 @@ async function sealNewChunk() {
     const imageUrl = await generateAndUploadImage(chunkText, isProduction);
     const newChunk = { ts: wordsToChunk[0].ts, hash, text: chunkText, words: wordsToChunk, imageUrl };
 
-    // If image generation was successful, post to social media.
-    if (newChunk.imageUrl) {
+    // If image generation was successful, post to social media (only in production mode).
+    if (newChunk.imageUrl && isProduction) {
       const shareableUrl = `https://www.sntnz.com/chunk/${newChunk.hash}`;
       const crossText = `${newChunk.text.substring(0, 250)}...\n\n${shareableUrl}`;
       await postEverywhere(crossText, newChunk.imageUrl, isProduction);

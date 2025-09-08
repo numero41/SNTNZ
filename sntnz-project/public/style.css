@@ -13,7 +13,7 @@
   --color-grey3: #333;
   --color-warning: #e7a33c;
   --color-error: #e63420;
-  --color-shadow: rgba(0, 0, 0, 0.15);
+  --color-shadow: rgba(0, 0, 0, 0.25);
   --color-user-highlight: #e7a33c4d;
   --color-secondary: var(--color-white);
   --color-black-transp: rgba(0, 0, 0, 0.6);
@@ -34,7 +34,7 @@
   /* Margins */
   --main-margin: 40px;
   --header-height: 80px;
-  --footer-height: 60px;
+  --footer-height: 80px;
   --history-footer-height: 110px;
 
   /* Borders */
@@ -1134,6 +1134,24 @@ body {
 }
 
 /* ============================================================================
+   --- SOCIAL ICONS ---
+============================================================================ */
+.social-link {
+  display: inline-block;
+  padding: 12px;
+}
+
+.icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-color: black;
+
+  -webkit-mask: var(--icon) no-repeat center / contain;
+  mask: var(--icon) no-repeat center / contain;
+}
+
+/* ============================================================================
    --- FOOTER ---
 ============================================================================ */
 
@@ -1144,7 +1162,7 @@ body {
   width: 100%;
   text-align: center;
   font-size: 0.9rem;
-  padding: 1rem 1rem;
+  padding-bottom: 1rem;
   border-top: var(--border-light);
   color: var(--color-grey2);
   background-color: var(--color-white); /* Added background to hide content scrolling underneath */
