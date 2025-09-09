@@ -50,6 +50,7 @@ export function addTooltipEvents(containerElement, tooltipElement) {
       });
 
       // --- 3. Populate Tooltip Content ---
+      tooltipElement.innerHTML = '';
       const authorLine = document.createElement('div');
       const authorStrong = document.createElement('strong');
       authorStrong.textContent = 'Author: ';

@@ -10,13 +10,31 @@
 // Check the environment. Default to 'development' if NODE_ENV is not set.
 const isProduction = process.env.NODE_ENV === 'production';
 
+
 const ROUND_DURATION_SECONDS_PROD = 60;
-const BOT_INTERVAL_MINUTES_PROD = 1;
-const HISTORY_CHUNK_SCHEDULE_CRON_PROD = '0 6,12,18,0 * * *';
+const CHUNK_DURATION_MINUTES_PROD = 360;
 
 const ROUND_DURATION_SECONDS_DEV = 30;
-const BOT_INTERVAL_MINUTES_DEV = 0.5;
-const HISTORY_CHUNK_SCHEDULE_CRON_DEV = '*/20 * * * *';
+const CHUNK_DURATION_MINUTES_DEV = 2;
+
+// --- Dynamically Calculate Values Before Exporting ---
+const CHUNK_DURATION_MINUTES = isProduction ? CHUNK_DURATION_MINUTES_PROD : CHUNK_DURATION_MINUTES_DEV;
+
+let HISTORY_CHUNK_SCHEDULE_CRON;
+
+if (CHUNK_DURATION_MINUTES < 60) {
+  // Case 1: Duration is less than an hour. Use the minute field.
+  // Example: For 20 minutes -> '*/20 * * * *'
+  HISTORY_CHUNK_SCHEDULE_CRON = `*/${CHUNK_DURATION_MINUTES} * * * *`;
+} else {
+  // Case 2: Duration is one or more hours. Use the hour field.
+  const hours = CHUNK_DURATION_MINUTES / 60;
+  if (CHUNK_DURATION_MINUTES % 60 !== 0) {
+    console.warn(`[sntnz config] WARNING: CHUNK_DURATION_MINUTES (${CHUNK_DURATION_MINUTES}) is not a clean multiple of 60. The cron schedule may not run as expected.`);
+  }
+  // Example: For 120 minutes -> 2 hours -> '0 */2 * * *'
+  HISTORY_CHUNK_SCHEDULE_CRON = `0 */${hours} * * *`;
+}
 
 module.exports = {
   // --- Round / sentence ---
@@ -30,17 +48,15 @@ module.exports = {
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",
   BOT_NAME: "SNTNZ_BOT",
-  BOT_LOOKBACK_MULTIPLIER: 1,
-  BOT_SENTENCE_MIN_WORDS: 15,
-  BOT_SENTENCE_MAX_WORDS: 50,
-  BOT_INTERVAL_MINUTES: isProduction ? BOT_INTERVAL_MINUTES_PROD : BOT_INTERVAL_MINUTES_DEV,
   AI_TIMEOUT_MS: 25000,
 
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
 
   // --- MODELS ---
   IMAGEN_MODEL:'imagen-3.0-generate-001',
-  GEMINI_MODEL:'gemini-2.5-flash-lite',
+  GEMINI_MODEL_LITE:'gemini-2.5-flash-lite',
+  GEMINI_MODEL_FLASH:'gemini-2.5-flash',
+  GEMINI_MODEL_PRO:'gemini-2.5-pro',
 
   // --- Social Media ---
   FB_GRAPH_VERSION: 'v23.0',
@@ -52,7 +68,169 @@ module.exports = {
   PUNCTUATION_REGEX_STRING: "^[(\"'*_]*[a-zA-Z0-9'-]+[.,!?;:...\"'_)]*$",
 
   // --- History ---
-  HISTORY_CHUNK_SCHEDULE_CRON: isProduction ? HISTORY_CHUNK_SCHEDULE_CRON_PROD : HISTORY_CHUNK_SCHEDULE_CRON_DEV,
+  CHUNK_DURATION_MINUTES: CHUNK_DURATION_MINUTES,
+  HISTORY_CHUNK_SCHEDULE_CRON: HISTORY_CHUNK_SCHEDULE_CRON,
+
+  // --- Writing Styles ---
+  WRITING_STYLES: [
+    {
+      "name": "Tolkien-esque High Fantasy",
+      "description": "A formal, elevated prose style with a focus on history, lineage, and world-building. Uses archaic language, detailed descriptions of landscapes, and a serious, epic tone.",
+      "enforce": [
+        "elevated, formal prose",
+        "archaic vocabulary (e.g., 'ere', 'nigh', 'whence')",
+        "mythological undertones",
+        "sweeping landscape descriptions",
+        "sense of deep history",
+        "focus on quests and ancient evils"
+      ]
+    },
+    {
+      "name": "Graphic Novel Narration",
+      "description": "A clipped, punchy, and highly visual style. Uses short, impactful sentences, present tense, and focuses on immediate action and internal monologue, like captions in a comic book.",
+      "enforce": [
+        "present tense narration",
+        "short, declarative sentences",
+        "strong, active verbs",
+        "focus on visual details and action",
+        "internal monologue fragments",
+        "cinematic, panel-by-panel descriptions"
+      ]
+    },
+    {
+      "name": "Gothic Thriller",
+      "description": "A dark, atmospheric, and suspenseful style. Focuses on psychological dread, decaying settings, and the uncanny. Uses long, complex sentences to build tension.",
+      "enforce": [
+        "moody and atmospheric tone",
+        "psychological suspense",
+        "themes of decay and madness",
+        "complex sentences with subordinate clauses",
+        "focus on sensory details that create unease",
+        "foreshadowing and ambiguity"
+      ]
+    },
+    {
+      "name": "Lyrical Romance",
+      "description": "An emotive and expressive style focused on feelings, relationships, and sensory experiences. Uses figurative language like metaphors and similes, and a flowing, rhythmic prose.",
+      "enforce": [
+        "focus on emotion and introspection",
+        "rich sensory details",
+        "use of metaphor and simile",
+        "poetic, rhythmic sentence structure",
+        "themes of connection, longing, and beauty",
+        "intimate, personal perspective"
+      ]
+    },
+    {
+      "name": "Hard Science Fiction",
+      "description": "A precise, technical, and analytical style. Focuses on scientific accuracy, technological detail, and logical problem-solving. The tone is detached, clinical, and rooted in plausibility.",
+      "enforce": [
+        "technical and precise language",
+        "plausible scientific concepts",
+        "focus on technology, systems, and mechanics",
+        "analytical, problem-solving narrative",
+        "understated, professional tone",
+        "themes of discovery, reason, and consequences of technology"
+      ]
+    },
+    {
+      "name": "Age of Exploration Journal",
+      "description": "A first-person, observational style mimicking the logs of a historical explorer. The tone is practical, wondrous, and sometimes understated. Focuses on cataloging discoveries.",
+      "enforce": [
+        "first-person journal or logbook format",
+        "observational and descriptive",
+        "sense of wonder and discovery",
+        "practical, matter-of-fact tone",
+        "detailed cataloging of flora, fauna, and geography",
+        "themes of journey into the unknown"
+      ]
+    },
+    {
+      "name": "Epic Historical Chronicle",
+      "description": "A grand, formal style reminiscent of chronicles and sagas. Focuses on armies, kings, and battles, with a sense of destiny and fate.",
+      "enforce": [
+        "sweeping, formal narration",
+        "detailed accounts of armies, banners, tactics",
+        "references to lineage, honor, and glory",
+        "fatalistic or prophetic undertones",
+        "use of archaic or martial vocabulary",
+        "tone of inevitability in conflict"
+      ]
+    },
+    {
+      "name": "Mythopoetic (Mythological)",
+      "description": "A timeless, allegorical style echoing oral traditions. Characters become archetypes, events resonate with cosmic significance, and the language is symbolic.",
+      "enforce": [
+        "archetypal characters (the hero, the trickster, the god-king)",
+        "cosmic imagery and symbolism",
+        "cyclical view of time (prophecies, eternal return)",
+        "elevated, ritual-like language",
+        "themes of fate, sacrifice, divine conflict",
+        "sense of timelessness"
+      ]
+    },
+    {
+      "name": "Whimsical Fairy Tale",
+      "description": "A playful, surreal, and slightly absurd style. Uses childlike wonder mixed with nonsensical logic, anthropomorphic creatures, and dreamlike shifts.",
+      "enforce": [
+        "whimsical, playful narration",
+        "dreamlike and illogical events",
+        "talking animals or objects",
+        "wordplay, riddles, paradoxes",
+        "themes of curiosity, strangeness, and whimsy",
+        "tone oscillates between lighthearted and unsettling"
+      ]
+    },
+    {
+      "name": "Cosmic Horror",
+      "description": "A dense, dread-filled style focusing on the insignificance of humanity before incomprehensible, alien forces. Language is archaic, heavy, and overwhelming.",
+      "enforce": [
+        "long, elaborate sentences",
+        "forbidden knowledge and ancient ruins",
+        "indescribable horrors, excessive adjectives ('cyclopean,' 'eldritch')",
+        "recurring sense of insignificance",
+        "psychological fragility and madness",
+        "ambiguity and suggestion over direct description"
+      ]
+    },
+    {
+      "name": "Pulp Gothic Horror",
+      "description": "A visceral, darkly entertaining horror style. Monsters, blood, and supernatural dread, but with melodramatic flair.",
+      "enforce": [
+        "lurid, sensational descriptions",
+        "suspenseful pacing",
+        "grotesque imagery",
+        "strong emotional reactions (terror, despair)",
+        "crumbling mansions, graveyards, midnight storms",
+        "themes of death, corruption, and fear"
+      ]
+    },
+    {
+      "name": "Comic Book Action",
+      "description": "Fast, exaggerated, and cinematic, echoing superhero comics. Bold narration, sound effects, and kinetic descriptions of action.",
+      "enforce": [
+        "bold exclamations ('BAM!', 'CRASH!')",
+        "hyper-dynamic verbs and action scenes",
+        "quick shifts of perspective (like panels)",
+        "larger-than-life heroes and villains",
+        "dramatic one-liners and inner monologues",
+        "stylized violence and spectacle"
+      ]
+    },
+    {
+      "name": "Cinematic Science Fiction",
+      "description": "A vivid, cinematic style focused on atmosphere, suspense, and spectacle. Combines futuristic technology with tension, mystery, and human drama.",
+      "enforce": [
+        "atmospheric and visual narration (like film shots)",
+        "suspenseful pacing, tension in silence/space",
+        "blending of high technology with human vulnerability",
+        "focus on survival, isolation, or awe",
+        "precise but not overly technical language",
+        "tone ranges from dread (Alien) to transcendence (2001)"
+      ]
+    }
+  ],
+
 
   // --- Image styles ---
   IMAGE_STYLES: [

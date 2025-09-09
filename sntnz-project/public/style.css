@@ -33,8 +33,8 @@
 
   /* Margins */
   --main-margin: 40px;
-  --header-height: 80px;
-  --footer-height: 80px;
+  --header-height: 90px;
+  --footer-height: 100px;
   --history-footer-height: 110px;
 
   /* Borders */
@@ -193,9 +193,13 @@ body {
   font-weight: var(--font-weight-regular);
   min-width: 200px;
 }
+.current-text-section {
+  width: 100%;
+}
 
 /* Scrollable variant of the text block */
 .current-text.scrollable{
+  width: 100%;
   text-align: justify;
   height: 200px;
   padding-right: 1rem;
@@ -418,7 +422,7 @@ body {
   justify-content: center;
   height: 100%;
   width: 100%;
-  color: var(--color-grey0);
+  color: var(--color-grey3);
   font-size: 0.9rem;
   text-align: center;
   user-select: none;
@@ -433,6 +437,7 @@ body {
   border-radius: var(--border-radius);
   cursor: pointer;
   box-shadow: none;
+  align-self: center;
 }
 
 /* Allows to align the x vutton on the top right of the image */
@@ -474,12 +479,12 @@ body {
   bottom: 15px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 8px 16px;
+  padding: 6px 14px;
   background-color: var(--color-black-transp);
   color: var(--color-white);
   text-decoration: none;
   border-radius: 5px;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   transition: background-color 0.2s ease;
   opacity: 0.8;
   pointer-events: auto;
@@ -676,7 +681,7 @@ body {
    --- INFO MODAL ---
 ============================================================================ */
 
-/* Small “i” info button next to title */
+/* Small info button next to title */
 .info-btn {
   font-family: var(--font-main);
   background: transparent;
@@ -733,6 +738,11 @@ body {
   z-index: 1001;
   line-height: 1.6;
   animation: fadeIn 0.3s ease-out;
+
+  /* Set a max height relative to the viewport's height for all screen sizes */
+  max-height: 85vh;
+  /* Add a vertical scrollbar only if the content overflows */
+  overflow-y: auto;
 }
 
 /* Modal headings/lists */
@@ -741,6 +751,11 @@ body {
 }
 .modal-content ul {
   padding-left: 20px;
+}
+.modal-content hr {
+    border: none;
+    border-top: 1px solid var(--color-grey0);
+    margin: 1.5rem 0;
 }
 
 /* Close (×) button */
@@ -767,18 +782,14 @@ body {
 
 /* Close hover */
 .modal-close:hover {
-  color: var(--color-black-transp-hover);
+  background-color: var(--color-black-transp-hover);
 }
 
-
-/* Media query for mobile screens */
-@media (max-width: 768px) {
+/* Media query for wider (desktop) screens */
+@media (min-width: 769px) {
   .modal-content {
-    /* Set a max height relative to the viewport's height */
-    max-height: 85vh;
-
-    /* Add a vertical scrollbar only if the content overflows */
-    overflow-y: auto;
+    /* Allow the modal to be wider on larger screens */
+    max-width: 700px;
   }
 }
 
@@ -968,6 +979,7 @@ body {
 
 /* History text block & interactive words */
 .history-text-block {
+  width: 100%;
   font-family: var(--font-main);
   line-height: 1.8;
   font-weight: var(--font-weight-regular);
@@ -1138,17 +1150,20 @@ body {
 ============================================================================ */
 .social-link {
   display: inline-block;
-  padding: 12px;
+  padding: 14px;
 }
 
 .icon {
   display: inline-block;
-  width: 18px;
-  height: 18px;
-  background-color: black;
-
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-black);
   -webkit-mask: var(--icon) no-repeat center / contain;
   mask: var(--icon) no-repeat center / contain;
+}
+
+.icon:hover {
+  background-color: var(--color-grey2);
 }
 
 /* ============================================================================

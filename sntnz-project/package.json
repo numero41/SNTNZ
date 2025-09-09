@@ -27,6 +27,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pino-http": "^10.5.0",
+    "sharp": "^0.34.3",
     "socket.io": "^4.8.1",
     "twitter-api-v2": "^1.27.0"
   },

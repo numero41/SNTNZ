@@ -23,13 +23,16 @@ const { Storage } = require('@google-cloud/storage');
 const { GoogleAuth } = require('google-auth-library');
 
 // --- Custom Modules ---
-const constants = require('./constants');
-const imageStyles = constants.IMAGE_STYLES;
 const logger = require('./logger');
+const constants = require('./constants');
+const sharp = require('sharp');
+const writingStyles = constants.WRITING_STYLES;
+const imageStyles = constants.IMAGE_STYLES;
 
 // These variables will be initialized once by the `initBots` function.
-let vertex_ai, storage, bucket, textModel;
-let recentlyUsedStyles = []; // In-memory store to avoid repeating image styles too frequently.
+let vertex_ai, storage, bucket, textModelLite;
+let recentlyUsedImageStyles = []; // In-memory store to avoid repeating image styles too frequently.
+let recentlyUsedWritingStyles = []; // In-memory store to avoid repeating writing styles too frequently.
 
 // A cache for the bot's recently generated themes to promote novelty.
 globalThis.__recentBotThemes = [];
@@ -56,8 +59,27 @@ function initBots() {
   // Get a reference to the specific bucket where images will be stored.
   bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
-  // Get a reference to the specific Gemini model we'll be using for text generation.
-  textModel = vertex_ai.getGenerativeModel({ model: constants.GEMINI_MODEL });
+  // Get a reference to the Gemini models with fallbacks for resilience.
+  try {
+    textModelFlash = vertex_ai.getGenerativeModel({ model: constants.GEMINI_MODEL_FLASH });
+  } catch (e) {
+    logger.error('[bots] Could not initialize Gemini Flash model. Check constants/env vars.');
+    throw e; // Flash is essential, so we should stop if it's missing.
+  }
+
+  try {
+    textModelLite = vertex_ai.getGenerativeModel({ model: constants.GEMINI_MODEL_LITE });
+  } catch (e) {
+    logger.warn('[bots] Could not initialize Gemini Lite model. Falling back to Flash.');
+    textModelLite = textModelFlash; // Fallback
+  }
+
+  try {
+    textModelPro = vertex_ai.getGenerativeModel({ model: constants.GEMINI_MODEL_PRO });
+  } catch (e) {
+    logger.warn('[bots] Could not initialize Gemini Pro model. Falling back to Flash.');
+    textModelPro = textModelFlash; // Fallback
+  }
 
   logger.info('[bots] Google AI and Storage clients initialized.');
 }
@@ -76,7 +98,7 @@ function initBots() {
  * @returns {string[]} The updated context array.
  */
 function pushBotContext(word, botContext) {
-  const botBufferMax = constants.CURRENT_TEXT_LENGTH * constants.BOT_LOOKBACK_MULTIPLIER;
+  const botBufferMax = constants.CURRENT_TEXT_LENGTH;
   botContext.push(String(word || ''));
   // If the buffer exceeds its maximum size, remove the oldest word.
   if (botContext.length > botBufferMax) {
@@ -90,174 +112,319 @@ function pushBotContext(word, botContext) {
 // ============================================================================
 
 /**
- * @summary Generates and submits a word from the Gemini bot.
- * @description This is the main function for the text bot. It performs several steps:
- * 1. If a sentence is already queued, it submits the next word from the queue.
- * 2. If the queue is empty, it constructs a detailed prompt for the Gemini model,
- * including context, rules, and a list of banned words to ensure novelty.
- * 3. It calls the Gemini API to generate a new sentence.
- * 4. It validates the generated sentence against multiple criteria (length, banned words, etc.).
- * 5. If valid, it splits the sentence into a queue of words and submits the first one.
- * @param {object} state - The current state of the game needed for the bot's decision.
- * @returns {Promise<{botQueue: string[]}>} An object containing the updated bot queue.
+ * @summary Selects a writing style, avoiding recently used ones.
+ * @returns {object} The selected writing style object from constants.
  */
-async function runBotSubmission(state) {
-  const { liveWords, currentText, botContext, profanityFilter, getCompositeKey, broadcastLiveFeed } = state;
-  let { botQueue } = state; // Make a mutable copy of the queue
-
-  // --- Step 1: Use a queued word if available ---
-  if (botQueue.length > 0) {
-    const plannedWord = botQueue.shift(); // Take the next word from the queue
-    const botWordData = {
-      word: plannedWord,
-      styles: { bold: false, italic: false, underline: false, newline: false }
-    };
-    const compositeKey = getCompositeKey(botWordData);
-    // Submit the word only if it hasn't been submitted by someone else already.
-    if (!liveWords.has(compositeKey)) {
-        liveWords.set(compositeKey, {
-            ...botWordData,
-            submitterId: 'sntnz_bot',
-            submitterName: constants.BOT_NAME,
-            ts: Date.now(),
-            votes: new Map([['sntnz_bot', 1]]) // The bot automatically "upvotes" its own word.
-        });
-    }
-    broadcastLiveFeed();
-    return { botQueue }; // Return the modified queue
+function selectWritingStyle() {
+  let availableStyles = writingStyles.filter(style => !recentlyUsedWritingStyles.includes(style.name));
+  if (availableStyles.length === 0) {
+    logger.info('[bot] All writing styles used recently. Resetting pool.');
+    recentlyUsedWritingStyles = [];
+    availableStyles = writingStyles;
   }
+  const selectedStyle = availableStyles[Math.floor(Math.random() * availableStyles.length)];
+  recentlyUsedWritingStyles.push(selectedStyle.name);
+  if (recentlyUsedWritingStyles.length > 3) recentlyUsedWritingStyles.shift();
 
-  // --- Step 2: Construct the Prompt if the queue is empty ---
-  const allWords = currentText.map(w => w.word);
-  const recentWords = allWords.slice(-75).map(w => w.toLowerCase().replace(/[.,!?;:…]+$/u, ''));
-  const offensiveWords = allWords.filter(w => profanityFilter.check(w));
-  const extraBanned = (process.env.EXTRA_BANNED_WORDS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  let banPool = [...new Set([...recentWords, ...offensiveWords, ...extraBanned, 'please', 'pls', 'plz'])];
-  banPool = banPool.filter(word => !constants.BOT_STOP_WORDS.includes(word.toLowerCase()));
-  const banListForPrompt = `[${banPool.join(', ')}]`;
+  logger.info({ style: selectedStyle.name }, '[bot] Selected writing style');
+  return selectedStyle;
+}
 
-  const buildPrompt = (violationNote = "") => `
-      You are a master storyteller and a painter of words, weaving a forever-living novel.
-      Your primary purpose is to generate text with profound visual richness, as each sentence is a prompt for a unique piece of generated art.
-      You will write EXACTLY ONE complete sentence.
+/**
+ * @summary Generates a new chapter, including a title and a full story.
+ * @description This function is called when the bot detects the start of a new, empty chunk.
+ * It selects a writing style, prompts Gemini to create a title, then prompts Gemini
+ * again to write a ~360-word story based on that title and style.
+ * @param {number} totalChunkCount - The total number of chunks created so far.
+ * @returns {Promise<Array<object>>} A promise that resolves to a queue of word objects for submission.
+ */
+async function generateNewChapter(totalChunkCount, targetWordCount, recentTitles = [], currentWritingStyle) {
+  logger.info('[bot] Starting a new chapter...');
+  const chapterNumber = totalChunkCount + 1;
+  let title = `Chapter ${chapterNumber}`;
+  let story = '';
+  const newQueue = [];
 
-      **YOUR FIRST PRIORITY IS THIS CRITICAL RULE:**
-      - **IF** the "Context" text below ends with an incomplete sentence (no period, question mark, or exclamation point), your response **MUST** be only the words that complete that sentence.
-      - **ELSE** (if the sentence is complete), you will write a new, complete sentence that continues the story.
-      ${violationNote}
-
-      Hard rules:
-      1) Length: ${constants.BOT_SENTENCE_MIN_WORDS}–${constants.BOT_SENTENCE_MAX_WORDS} words.
-      2) Do NOT use any of these recently used words: ${banListForPrompt}
-      3) **Cinematic Lens:** Introduce a novel angle by dramatically shifting the scale or focus.
-      4) Do not repeat words or phrases within your new sentence.
-      5) **Composition over Description:** Build a single, focused scene using potent nouns and active verbs.
-      6) Avoid starting new sentences with mundane words like "A", "The", "It", or "There".
-      7) **Sensory Richness:** Your sentence must evoke at least two senses.
-      8) Style and themes: Blend classical wayfaring and surrealism with themes of exploration, technologies, and journeys.
-
-      Context (recent excerpt):
-      "${botContext.join(' ')}"
-
-      IMPORTANT:
-      - You must follow all rules perfectly.
-      - Output ONLY the one sentence. No explanations.
-    `.trim();
-
-  // --- Step 3: Define Validation Logic ---
-  const normalizeSentence = s => s.toLowerCase().replace(/[“”"‘’'`]+/g, '').replace(/[^\p{L}\p{N}\s.!?-]/gu, '').trim();
-  const wordCount = s => (s.trim().match(/\S+/g) || []).length;
-  const endsWithPunctuation = s => /[.!?]$/.test(s.trim());
-
-  const isValidSentence = (s) => {
-    if (typeof s !== 'string' || s.trim() === '') return false;
-    const wc = wordCount(s);
-    if (wc < constants.BOT_SENTENCE_MIN_WORDS || wc > constants.BOT_SENTENCE_MAX_WORDS) return false;
-    if (!endsWithPunctuation(s)) return false;
-    const tokens = s.toLowerCase().replace(/[.!?]/g, '').split(/\s+/);
-    if (tokens.some(t => banPool.includes(t))) return false;
-    // Check for repeated words (excluding common stop words)
-    const contentWords = tokens.filter(t => !constants.BOT_STOP_WORDS.includes(t));
-    if (new Set(contentWords).size !== contentWords.length) return false;
-    return true;
-  };
-
-
-  // --- Step 4: Call Gemini API and Validate the Response ---
-  let sentence = '';
   try {
-    const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 25000);
+    const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
     const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
-    const generateOnce = async (prompt) => {
-      const result = await withTimeout(textModel.generateContent({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 5000, temperature: 0.5, topP: 0.8, topK: 40 },
-      }));
-      const parts = result?.response?.candidates?.[0]?.content?.parts || [];
-      const rawText = parts.map(p => p.text).join(" ").trim();
-      logger.debug({ rawText }, '[bot] RAW AI OUTPUT');
-      const match = rawText.match(/^[\s\S]*?[.!?](?=\s|$)/); // Extract the first full sentence.
-      return match ? match[0] : rawText;
-    };
+    // --- Step 1: Generate Title ---
+    const MAX_TITLE_ATTEMPTS = 3;
+    let isUnique = false;
 
-    // First attempt
-    sentence = await generateOnce(buildPrompt());
-    // If first attempt fails validation, retry with a note asking for safer content.
-    if (!isValidSentence(sentence)) {
-      const note = 'CRITICAL: Your previous response failed validation. Follow all rules strictly. Ensure the sentence is neutral, non-violent, and uses common vocabulary.';
-      sentence = await generateOnce(buildPrompt(note));
+    for (let i = 0; i < MAX_TITLE_ATTEMPTS; i++) {
+      const titlePrompt = `
+        You are a master storyteller. Your current task is to create a chapter title for a new story to begin.
+        Style Guide:
+        - Style Name: ${currentWritingStyle.name}
+        - Description: ${currentWritingStyle.description}
+        - Instructions: Generate a short, evocative chapter title of 1-5 words from this style.
+        CRITICAL: Do not use any of the following recent titles: ${recentTitles.join(', ')}
+        Output ONLY the title text, without any quotes or prefixes.
+      `.trim();
+
+      const titleResult = await withTimeout(textModelLite.generateContent({
+          contents: [{ role: "user", parts: [{ text: titlePrompt }] }],
+          generationConfig: { maxOutputTokens: 50, temperature: 0.8 },
+      }));
+
+      const candidateTitle = (titleResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/["“”]/g, '');
+
+      // Check if the generated title is in the list of recent titles (case-insensitive).
+      if (candidateTitle && !recentTitles.some(t => t.toLowerCase() === candidateTitle.toLowerCase())) {
+        title = candidateTitle;
+        isUnique = true;
+        break; // Exit the loop on success
+      }
+      logger.warn(`[bot] Generated duplicate or empty title ('${candidateTitle}'). Retrying... (${i + 1}/${MAX_TITLE_ATTEMPTS})`);
     }
 
-  } catch (e) {
-    logger.warn({ err: e }, '[bot] model error (AI)');
-    sentence = ''; // Ensure sentence is empty on error.
+    // If the loop fails, use a generic fallback title.
+    if (!isUnique) {
+      title = `A New Beginning`;
+      logger.error('[bot] Failed to generate a unique title after multiple attempts. Using fallback.');
+    }
+
+    logger.info({ title }, '[bot] Generated chapter title');
+
+    // --- Step 2: Generate Story ---
+    const storyPrompt = `
+      You are a master storyteller tasked with writing a complete, self-contained story of approximately ${targetWordCount} words based on the provided chapter title.
+      The story must have a clear beginning, middle, and a satisfying conclusion.
+
+      Style Guide:
+      - Style Name: ${currentWritingStyle.name}
+      - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
+
+      Chapter Title: "${title}"
+
+      CRITICAL: Your entire response must be ONLY the story text. Do not repeat the title. Do not add any explanation or commentary.
+    `.trim();
+
+     const storyResult = await withTimeout(textModelPro.generateContent({
+        contents: [{ role: "user", parts: [{ text: storyPrompt }] }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
+    }));
+    story = (storyResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+
+    // --- Step 3: Build the Submission Queue ---
+    if (story) {
+        const storyWords = story.split(/\s+/).filter(Boolean);
+
+        // This adds another line break, followed by the complete chapter title in one submission.
+        newQueue.push({
+          word: `Chapter ${chapterNumber}: "${title}"`,
+          styles: { bold: true, italic: false, underline: false, newline: true },
+          isTitle: true
+        });
+
+        // Add story words to the queue, ensuring the first word starts on a new line.
+        if (storyWords.length > 0) {
+            storyWords.forEach((word, index) => {
+                const isFirstWord = index === 0;
+                newQueue.push({
+                    word: word,
+                    styles: {
+                        bold: false,
+                        italic: false,
+                        underline: false,
+                        newline: isFirstWord
+                    }
+                });
+            });
+        }
+    }
+
+  } catch (err) {
+      logger.error({ err }, '[bot] Failed to generate new chapter');
+      return []; // Return empty queue on failure
   }
 
-  logger.info('[bot] Final generated sentence:', sentence);
-  if (!isValidSentence(sentence)) {
-      logger.info({ sentence }, '[bot] Final generated sentence');
-      return { botQueue }; // Return unchanged queue on failure
-  }
+  logger.info({ wordCount: newQueue.length, title: title, story: story }, '[bot] New chapter generated and queued');
+  return newQueue;
+}
 
-  // --- Step 5: Update Bot Memory and Submit the First Word ---
-  // Add major nouns from the new sentence to the theme cache to avoid repetition.
-  const majorNouns = sentence.split(' ').filter(w => w.length > 4 && /^[a-z]/.test(w));
-  globalThis.__recentBotThemes.push(...majorNouns.map(n => n.toLowerCase().replace(/[.,!?;:…]+$/u, '')));
-  if (globalThis.__recentBotThemes.length > 10) {
-    globalThis.__recentBotThemes = globalThis.__recentBotThemes.slice(-10);
-  }
+/**
+ * @summary Continues a story that was started by users.
+ * @description If the bot is triggered mid-chunk, this function gets the existing text,
+ * determines how many words are needed to reach the ~360 target, and prompts Gemini
+ * to write a conclusion to the story in the established style.
+ * @param {Array<object>} currentChunkWords - An array of the word objects already in the current chunk.
+ * @returns {Promise<Array<object>>} A promise that resolves to a queue of new word objects.
+ */
+async function continueStory(currentChunkWords, targetWordCount, currentWritingStyle) {
+    logger.info('[bot] Continuing user-initiated story...');
+    const wordsSoFar = currentChunkWords.map(w => w.word).join(' ');
+    const remainingWords = Math.max(2, targetWordCount - currentChunkWords.length);
+    let continuation = '';
+    const newQueue = [];
 
-  // The new valid sentence becomes the bot's queue.
-  botQueue = sentence.trim().split(/\s+/);
-  let firstWord = (botQueue.length > 0) ? botQueue.shift() : '';
-  if (!firstWord) return { botQueue }; // Safety check
+    try {
+        // Conditionally select the AI model based on the number of remaining words.
+        const useProModel = remainingWords > (targetWordCount * 0.5);
+        const selectedModel = useProModel ? textModelPro : textModelFlash;
+        logger.info({ model: useProModel ? 'PRO' : 'LITE', remainingWords }, '[bot] Selected model for story continuation');
 
-  // Capitalize the first word if it starts a new sentence.
-  const lastWord = currentText.length ? currentText[currentText.length - 1].word : '';
-  if (!lastWord || /[.!?]$/.test(lastWord)) {
-    firstWord = firstWord.charAt(0).toUpperCase() + firstWord.slice(1);
-  }
+        const continuationPrompt = `
+            You are a master storyteller. A story is in progress, and your task is to continue it seamlessly and bring it to a satisfying conclusion.
+            Write approximately ${remainingWords} more words.
 
-  const botWordData = {
-    word: firstWord,
-    styles: { bold: false, italic: false, underline: false, newline: false }
-  };
-  const compositeKey = getCompositeKey(botWordData);
-  if (!liveWords.has(compositeKey)) {
-      liveWords.set(compositeKey, {
-          ...botWordData,
+            Style Guide (adhere to this strictly):
+            - Style Name: ${currentWritingStyle.name}
+            - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
+
+            Existing Text:
+            "${wordsSoFar}"
+
+            CRITICAL: Your response must be ONLY the new, continuing text. Do not repeat the existing text. Do not add any explanation.
+        `.trim();
+
+        const result = await selectedModel.generateContent({
+            contents: [{ role: "user", parts: [{ text: continuationPrompt }] }],
+            generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
+        });
+        continuation = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+
+        if (continuation) {
+            continuation.split(/\s+/).filter(Boolean).forEach(word => {
+                newQueue.push({ word, styles: { bold: false, italic: false, underline: false, newline: false } });
+            });
+        }
+    } catch (err) {
+        logger.error({ err }, '[bot] Failed to continue story');
+        return [];
+    }
+
+    logger.info({ wordCount: newQueue.length, targetWordCount: targetWordCount, continuation: continuation }, '[bot] Story continuation generated and queued');
+    return newQueue;
+}
+
+/**
+ * @summary Orchestrates the bot's turn to generate and submit text.
+ * @description This is the main function for the text bot. It manages the bot's queue
+ * and decides when to generate new content based on the current state of the story chunk.
+ * @param {object} state - The complete current state of the game from server.js.
+ * @returns {Promise<object>} An object containing the updated bot state to be synchronized with the server.
+ */
+async function runBotSubmission(state) {
+  // ==========================================================================
+  // --- 1. SETUP & STATE DECONSTRUCTION ---
+  // ==========================================================================
+  // Destructure all required variables from the main state object passed by the server.
+  // 'currentWritingStyle' is now managed here, not as a module-level variable.
+  const { liveWords, getCompositeKey, broadcastLiveFeed, currentChunkWords, totalChunkCount, dynamicTargetWordCount, recentTitles, currentText } = state;
+  let { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle } = state;
+
+  // ==========================================================================
+  // --- 2. HANDLE QUEUED SUBMISSIONS (with last-winner guard) ---
+  // ==========================================================================
+  // If the last round was won by a user (not the bot), any existing queue is stale
+  // and must be discarded so we regenerate fresh content for this round.
+  const lastWinner = Array.isArray(currentText) && currentText.length > 0 ? currentText[currentText.length - 1] : null;
+
+  if (botQueue.length > 0) {
+    if (lastWinner && lastWinner.username !== constants.BOT_NAME) {
+      logger.info('[bot] Last winner was a user; discarding stale queue and regenerating.');
+      botQueue = [];
+      botHasFinishedChapter = false;
+    } else {
+      const plannedSubmission = botQueue.shift(); // Take the next word from the front of the queue.
+      const compositeKey = getCompositeKey(plannedSubmission);
+
+      // Add the word to the live feed for users to vote on.
+      if (!liveWords.has(compositeKey)) {
+        liveWords.set(compositeKey, {
+          ...plannedSubmission,
           submitterId: 'sntnz_bot',
           submitterName: constants.BOT_NAME,
           ts: Date.now(),
-          votes: new Map([['sntnz_bot', 1]])
-      });
+          votes: new Map([['sntnz_bot', 1]]) // The bot always upvotes its own submissions.
+        });
+      }
+      broadcastLiveFeed();
+
+      // Return the updated state to the server.
+      return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+    }
   }
 
-  broadcastLiveFeed();
-  return { botQueue }; // Return the new queue
-}
+  // ==========================================================================
+  // --- 3. GUARD CLAUSE: CHECK IF WORK IS DONE ---
+  // ==========================================================================
+  // If the queue is empty but the bot has already completed its main writing task
+  // for this chapter, do nothing. This prevents the bot from adding more words to a finished chapter.
+  if (botHasFinishedChapter) {
+    return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+  }
 
+  // ==========================================================================
+  // --- 4. CONTENT GENERATION LOGIC ---
+  // ==========================================================================
+  // If the queue is empty and work is not done, the bot must decide what to write.
+  const isNewChunk = currentChunkWords.length === 0;
+  let newQueue = [];
+
+  // If a writing style hasn't been chosen for this chapter yet, select one now.
+  if (!currentWritingStyle) {
+    currentWritingStyle = selectWritingStyle();
+  }
+
+  // A) START A NEW CHAPTER: If the server signals a new chapter is needed or the chunk is empty.
+  if (botMustStartNewChapter || isNewChunk) {
+    logger.info('[bot] Server signaled a new chapter must be started.');
+    newQueue = await generateNewChapter(totalChunkCount, dynamicTargetWordCount, recentTitles, currentWritingStyle);
+    if (newQueue.length > 0) {
+      botMustStartNewChapter = false; // Reset the signal flag.
+      botHasFinishedChapter = true;   // Mark the bot's main job as complete for this chunk.
+    }
+  }
+  // B) CONTINUE AN EXISTING STORY: If users have started writing but the chunk isn't full.
+  else {
+    if (currentChunkWords.length < dynamicTargetWordCount) {
+        newQueue = await continueStory(currentChunkWords, dynamicTargetWordCount, currentWritingStyle);
+        if (newQueue.length > 0) {
+          botHasFinishedChapter = true; // Mark the bot's main job as complete for this chunk.
+        }
+    } else {
+        logger.info('[bot] Chunk is complete. Bot will not add more words.');
+    }
+  }
+
+  // ==========================================================================
+  // --- 5. POPULATE QUEUE & SUBMIT FIRST WORD ---
+  // ==========================================================================
+  // If the generation step produced new words, populate the bot's queue.
+  if (newQueue.length > 0) {
+      botQueue = newQueue;
+  } else {
+      // If generation failed or wasn't needed, exit and return the current state.
+      return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+  }
+
+  // Immediately submit the first word from the newly populated queue.
+  if (botQueue.length > 0) {
+    const firstSubmission = botQueue.shift();
+    const compositeKey = getCompositeKey(firstSubmission);
+
+    if (!liveWords.has(compositeKey)) {
+        liveWords.set(compositeKey, {
+            ...firstSubmission,
+            submitterId: 'sntnz_bot',
+            submitterName: constants.BOT_NAME,
+            ts: Date.now(),
+            votes: new Map([['sntnz_bot', 1]])
+        });
+    }
+    broadcastLiveFeed();
+  }
+
+  // ==========================================================================
+  // --- 6. RETURN FINAL UPDATED STATE ---
+  // ==========================================================================
+  // Return all state variables, which will be used to update the main server state.
+  return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+}
 
 // ============================================================================
 // --- IMAGEN IMAGE GENERATION ---
@@ -282,26 +449,26 @@ async function generateAndUploadImage(text, isProduction) {
     logger.info('[image] Starting image generation process...');
 
     // --- Step 1: Select an Artistic Style ---
-    let availableStyles = imageStyles.filter(style => !recentlyUsedStyles.includes(style.name));
+    let availableStyles = imageStyles.filter(style => !recentlyUsedImageStyles.includes(style.name));
     if (availableStyles.length === 0) {
       logger.info('[image] All styles used recently. Resetting pool.');
-      recentlyUsedStyles = [];
+      recentlyUsedImageStyles = [];
       availableStyles = imageStyles;
     }
     const selectedStyle = availableStyles[Math.floor(Math.random() * availableStyles.length)];
-    recentlyUsedStyles.push(selectedStyle.name);
-    if (recentlyUsedStyles.length > 4) recentlyUsedStyles.shift();
+    recentlyUsedImageStyles.push(selectedStyle.name);
+    if (recentlyUsedImageStyles.length > 4) recentlyUsedImageStyles.shift();
     logger.info({ style: selectedStyle.name }, '[image] Selected style');
 
     // --- Step 2: Summarize Text with Gemini for a better visual prompt ---
     let summarized = text.trim();
     try {
       const summarizationPrompt = `
-        Summarize the following text into a single, concise paragraph of about 40-70 words
+        Summarize the following text into a single, concise paragraph of about 50-80 words
         that visually describes the scene. Focus on concrete objects, colors, and actions.
         Omit abstract concepts, dialogue, and character names. Output only the description.
         TEXT: "${summarized}"`.trim();
-      const result = await textModel.generateContent({
+      const result = await textModelLite.generateContent({
         contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
         generationConfig: { maxOutputTokens: 128, temperature: 0.3 }
       });
@@ -324,13 +491,13 @@ async function generateAndUploadImage(text, isProduction) {
       `- Medium/Surface: ${(selectedStyle.surface || []).join(', ')}`,
       `- Technique: ${selectedStyle.enforce.join(', ') || selectedStyle.description}`,
       `- Palette: ${(selectedStyle.palette || []).join(', ')}`,
-      `- Quality: fine art premium grade.`,
+      `- Quality: fine art, gallery, poster, magazine cover, high premium grade.`,
       ``,
       `CONSTRAINTS:`,
-      `- the image must not contain any text, logos, watermarks, or people.`,
+      `- the render must NOT be photorealistic.`,
       `- the image must be highly detailed and fill the entire square canvas.`,
     ].join('\n');
-    logger.info('[image] Final Imagen prompt prepared.');
+    logger.info({ finalPrompt: finalPrompt }, '[image] Final Imagen prompt prepared.');
 
 
     // --- Step 4: Call the Imagen API ---
@@ -363,14 +530,37 @@ async function generateAndUploadImage(text, isProduction) {
     }
     logger.info('[image] Image data received from Vertex AI.');
 
-
-    // --- Step 5: Upload Image to Google Cloud Storage ---
+    // --- Step 5: Create Watermark and Composite Image ---
     const imageBuffer = Buffer.from(imageDataBase64, 'base64');
+
+    // Create a text watermark as an SVG image in a buffer.
+    // This gives you full control over font, size, color, and opacity.
+      const watermarkSvg = `
+        <svg width="300" height="100">
+          <text x="95%" y="85%" text-anchor="end"
+          font-family="IBM Plex Mono, monospace" font-size="20" font-weight="bold" fill="rgba(255, 153, 51, 0.71)">
+          sntnz.com
+          </text>
+        </svg>
+      `;
+    const watermarkBuffer = Buffer.from(watermarkSvg);
+
+    // Use sharp to composite the watermark onto the generated image.
+    const watermarkedImageBuffer = await sharp(imageBuffer)
+      .composite([
+        {
+          input: watermarkBuffer,
+          gravity: 'southeast', // Positions the watermark in the bottom-right corner
+        },
+      ])
+      .toBuffer();
+
+    // --- Step 6: Upload Image to Google Cloud Storage ---
     const folder = isProduction ? 'images' : 'dev-images';
     const fileName = `${folder}/sntnz-chunk-${Date.now()}.png`;
     const file = bucket.file(fileName);
 
-    await file.save(imageBuffer, {
+    await file.save(watermarkedImageBuffer, {
       metadata: { contentType: 'image/png' },
       resumable: false // Use simpler upload for smaller files.
     });

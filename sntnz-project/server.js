@@ -88,13 +88,20 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // ============================================================================
 // These variables hold the in-memory state of the application.
 
-let currentText = [];             // An array holding the most recent winning words.
-let liveWords = new Map();        // A map of currently submitted words for the active round.
-let nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000); // The timestamp for when the current round ends.
-let lastBotPostTimestamp = 0;     // Tracks when the bot last submitted a word to manage its cooldown.
-let botContext = [];              // The context buffer for the Gemini bot.
-let botQueue = [];                // The word queue for the Gemini bot's current sentence.
-let shuttingDown = false;         // A flag to prevent multiple shutdown procedures from running.
+let currentText = [];               // An array holding the most recent winning words.
+let currentWritingStyle = null;     // The current writing style
+let liveWords = new Map();          // A map of currently submitted words for the active round.
+let nextTickTimestamp = computeNextRoundEndTime(); // The timestamp for when the current round ends.
+let botContext = [];                // The context buffer for the Gemini bot.
+let botQueue = [];                  // The word queue for the Gemini bot's current sentence.
+let shuttingDown = false;           // A flag to prevent multiple shutdown procedures from running.
+let botIsWritingChapterTitle = false; // Signals that the bot is currently writing a chapter title.
+let botMustStartNewChapter = false; // Signals that the bot must start a new chapter.
+let botHasFinishedChapter = false;  // Tracks if the bot has done its job for the current chunk..
+let botIsRunning = false;           // A lock to prevent the bot from running multiple times at once.
+let mustSeal = false;
+const TARGET_CHUNK_WORD_COUNT = Math.floor(((constants.CHUNK_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
+
 
 // ============================================================================
 // --- DATABASE CONNECTION ---
@@ -147,6 +154,29 @@ function getCompositeKey(wordData) {
 }
 
 /**
+ * Computes the epoch timestamp (in ms) for the next round end, aligned to the
+ * official clock boundaries rather than relative to Date.now().
+ *
+ * @returns {number} Epoch time in milliseconds for the next round end.
+ */
+function computeNextRoundEndTime() {
+  const period = constants.ROUND_DURATION_SECONDS || 60;
+  const now = new Date();
+
+  // Start of the *current* minute
+  const base = new Date(now);
+  base.setSeconds(0, 0);
+
+  // Add periods until strictly in the future
+  let candidate = base.getTime();
+  while (candidate <= now.getTime()) {
+    candidate += period * 1000;
+  }
+  return Math.floor(candidate);
+}
+
+
+/**
  * Calculates scores for all live words and returns a sorted array for the client.
  * Each client receives a personalized list showing their own vote status.
  * @param {string} [requestingUserId] - The ID of the user requesting the feed, to personalize their vote status.
@@ -165,8 +195,15 @@ function getLiveFeedState(requestingUserId) {
     }
 
     feed.push({
-      word: data.word, styles: data.styles, username: data.submitterName,
-      count: score, ts: data.ts, compositeKey: compositeKey, userVote: userVote,
+      word: data.word,
+      styles: data.styles,
+      isTitle: data.isTitle || false,
+      username: data.submitterName,
+      count: score,
+      ts: data.ts,
+      compositeKey:
+      compositeKey,
+      userVote: userVote,
     });
   }
   // Sort by score (descending), then by submission time (ascending) as a tie-breaker.
@@ -204,6 +241,40 @@ function validateSubmission(word) {
   return { valid: true };
 }
 
+/**
+ * Calculates the number of minutes until the next scheduled event based on a cron string.
+ * @param {string} cronSchedule - The cron schedule string.
+ * @returns {number} The whole number of minutes until the next seal.
+ */
+function calculateMinutesUntilNextSeal(cronSchedule) {
+  const parts = cronSchedule.split(' ');
+  const minutePart = parts[0];
+  const hourPart = parts[1];
+  const now = new Date();
+
+  const nextSealDate = new Date();
+  nextSealDate.setSeconds(0, 0);
+
+  if (minutePart.startsWith('*/')) {
+    const interval = parseInt(minutePart.substring(2), 10);
+    const remainder = now.getMinutes() % interval;
+    nextSealDate.setMinutes(now.getMinutes() + (interval - remainder));
+  } else {
+    const scheduledMinute = parseInt(minutePart, 10);
+    const scheduledHours = hourPart.split(',').map(h => parseInt(h, 10)).sort((a, b) => a - b);
+    let nextHour = scheduledHours.find(h => h > now.getHours() || (h === now.getHours() && scheduledMinute > now.getMinutes()));
+
+    if (nextHour !== undefined) {
+        nextSealDate.setHours(nextHour, scheduledMinute);
+    } else {
+        nextSealDate.setDate(now.getDate() + 1);
+        nextSealDate.setHours(scheduledHours[0], scheduledMinute);
+    }
+  }
+
+  const diffMs = nextSealDate - now;
+  return Math.ceil(diffMs / (1000 * 60)); // Return minutes, rounded up.
+}
 
 // ============================================================================
 // --- CORE GAME & HISTORY LOGIC ---
@@ -215,32 +286,38 @@ function validateSubmission(word) {
  * updates the story, and prepares the game for the next round.
  */
 async function endRoundAndElectWinner() {
-  // 1. Immediately schedule the next round's end time for UI responsiveness.
-  nextTickTimestamp = Date.now() + (constants.ROUND_DURATION_SECONDS * 1000);
+  // 1. Immediately schedule the next round's end time.
+  nextTickTimestamp = computeNextRoundEndTime();
   io.emit('nextTick', { nextTickTimestamp });
 
-  // 2. Capture the final state of the round that just ended.
+  // 2. Capture and clear the live submissions.
   const finalLiveFeed = getLiveFeedState();
-
-  // 3. Clear the live submissions for the new round and broadcast the empty state.
   liveWords.clear();
   broadcastLiveFeed();
 
-  // 4. Determine the winner from the captured state. A winner must have a positive score.
+  // 3. Determine the winner and the previous word.
   const winner = finalLiveFeed.find(item => item.count > 0);
+  const lastWinningWord = currentText.length > 0 ? currentText[currentText.length - 1] : null;
 
   // 5. Process the winner, if one exists.
   if (winner) {
-    // Automatically capitalize the word if it's the start of a new sentence.
-    const lastWord = currentText.length > 0 ? currentText[currentText.length - 1].word : '';
-    if (!lastWord || /[.!?]$/.test(lastWord)) {
+
+    // Rule 1: Force a newline after a chapter title.
+    if (lastWinningWord && lastWinningWord.isTitle) {
+      if (!winner.styles) winner.styles = {};
+      winner.styles.newline = true;
+    }
+
+    // Rule 2: Automatically capitalize a new sentence.
+    const lastWordText = lastWinningWord ? lastWinningWord.word : '';
+    if (!lastWordText || /[.!?]$/.test(lastWordText)) {
       winner.word = winner.word.charAt(0).toUpperCase() + winner.word.slice(1);
     }
+
     const totalVotes = finalLiveFeed.reduce((acc, item) => acc + Math.max(0, item.count), 0);
     const winnerRow = {
-      ts: Date.now(),
-      word: winner.word, styles: winner.styles, username: winner.username,
-      pct: totalVotes > 0 ? (winner.count / totalVotes) * 100 : 0,
+      ts: Date.now(), word: winner.word, styles: winner.styles, isTitle: winner.isTitle || false,
+      username: winner.username, pct: totalVotes > 0 ? (winner.count / totalVotes) * 100 : 0,
       count: winner.count, total: totalVotes, chunkId: null
     };
 
@@ -250,67 +327,160 @@ async function endRoundAndElectWinner() {
       currentText.push(winnerRow);
       if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
       botContext = pushBotContext(winner.word, botContext);
-      // Notify clients subscribed to history updates.
-      io.to('history-room').emit('liveHistoryUpdate', winnerRow);
       io.emit('currentTextUpdated', currentText);
     } catch (err) {
       logger.error({ err }, "[db] Failed to save word to database");
     }
+
+    // 7. Unlock for users if the bot was writing a title
+    // The lock is released only if it was ON, the last word was a title,
+    // and a new winner exists that is NOT a title word.
+    if (botIsWritingChapterTitle && winner.isTitle) {
+      botIsWritingChapterTitle = false;
+      logger.info('[server] Title sequence complete. Releasing user submission lock.');
+    }
+
+    // 8. If the winner is not the bot, clear the bot's queue so it doesn't keep a stale plan.
+    if (winner.username !== constants.BOT_NAME) {
+      logger.info({}, '[bot] A user won the round. Clearing bot queue and allowing a fresh turn.');
+      botQueue = [];
+      botHasFinishedChapter = false;
+    }
+    logger.info({winner: winner.word}, '[server] A word has been chosen.');
   }
 
-  // 7. Check if the bot's submission lost. If so, clear its queue to force a new sentence.
-  const botSubmittedWord = finalLiveFeed.find(item => item.username === constants.BOT_NAME);
-  if (botSubmittedWord && (!winner || winner.username !== constants.BOT_NAME)) {
-    logger.info('[bot] Submission was not chosen. Clearing sentence queue.');
-    botQueue = [];
+  // After finishing the round, run sealing if scheduled
+  if (mustSeal) {
+    mustSeal = false;
+    await sealNewChunk();
   }
 }
 
 /**
  * @summary Archives un-chunked words into a new, permanent chunk document with a generated image.
- * @description This function runs on a schedule (e.g., daily). It gathers all words written
- * since the last chunk, generates an AI image for them, saves them as a permanent "chunk"
- * in the database, and cross-posts the result to social media.
+ * @description This function runs on a schedule. It uses a two-phase process to atomically
+ * claim unsealed words before processing them, preventing race conditions with the history API.
  */
 async function sealNewChunk() {
-  try {
-    const wordsToChunk = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
+  let claimedWordsCount = 0;
 
-    // Only create a chunk if there's a meaningful amount of text.
-    if (wordsToChunk.length < constants.BOT_SENTENCE_MIN_WORDS) {
-      logger.info({ wordsPending: wordsToChunk.length, min: constants.BOT_SENTENCE_MIN_WORDS }, '[history] Not enough words to seal chunk');
+  try {
+    // ------------------------------------------------------------------------
+    // LOCK DURING SEAL
+    // Prevent user submissions while we seal and prepare the next chapter title.
+    // ------------------------------------------------------------------------
+    botIsWritingChapterTitle = true;
+    logger.info('[history] Sealing new chunk: User submissions are now locked.');
+    io.emit('imageGenerationStarted');
+
+    // ------------------------------------------------------------------------
+    // PHASE 2: FETCH PENDING WORDS (ordered)
+    // Grab all words that haven’t yet been sealed (chunkId: null).
+    // ------------------------------------------------------------------------
+    let wordsToChunk = await wordsCollection
+      .find({ chunkId: null })
+      .sort({ ts: 1 })
+      .toArray();
+
+    claimedWordsCount = wordsToChunk.length;
+    if (claimedWordsCount === 0) {
+      logger.info('[history] No words to seal, skipping.');
       return;
     }
-    logger.info({ wordCount: wordsToChunk.length }, '[history] Sealing new chunk');
-    io.emit('imageGenerationStarted'); // Notify clients that an image is being created.
 
-    // Create a unique, verifiable hash for the chunk's content.
+    // ------------------------------------------------------------------------
+    // PHASE 3: BUILD CHUNK METADATA (hash, text, title)
+    // ------------------------------------------------------------------------
     const dataToHash = JSON.stringify(wordsToChunk);
     const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
-    const chunkText = wordsToChunk.map(w => w.word).join(' ');
 
-    // Generate the image and create the new chunk document.
-    const imageUrl = await generateAndUploadImage(chunkText, isProduction);
-    const newChunk = { ts: wordsToChunk[0].ts, hash, text: chunkText, words: wordsToChunk, imageUrl };
+    const chunkText = wordsToChunk.reduce((acc, w) => {
+      const sep = w.styles?.newline ? '\n' : (acc ? ' ' : '');
+      return acc + sep + w.word;
+    }, '').trim();
 
-    // If image generation was successful, post to social media (only in production mode).
+    // Extract title from the first word if flagged as title
+    let chunkTitle = 'Untitled';
+    if (wordsToChunk[0].isTitle && wordsToChunk[0].word.startsWith('Chapter')) {
+      chunkTitle = wordsToChunk[0].word;
+    }
+
+    // ------------------------------------------------------------------------
+    // PHASE 4: OPTIONAL IMAGE GENERATION & CROSS-POST
+    // ------------------------------------------------------------------------
+    let imageUrl = null;
+    if (isProduction) {
+      imageUrl = await generateAndUploadImage(chunkText, isProduction);
+    }
+
+    const newChunk = {
+      ts: wordsToChunk[0].ts, // timestamp of first word
+      hash,
+      title: chunkTitle,
+      text: chunkText,
+      words: wordsToChunk,
+      imageUrl,
+      style: currentWritingStyle ? currentWritingStyle.name : 'User-Initiated',
+    };
+
     if (newChunk.imageUrl && isProduction) {
       const shareableUrl = `https://www.sntnz.com/chunk/${newChunk.hash}`;
-      const crossText = `${newChunk.text.substring(0, 250)}...\n\n${shareableUrl}`;
+      const crossText = `${newChunk.text.substring(0, 180)}...\n\nRead more at:\n${shareableUrl}`;
       await postEverywhere(crossText, newChunk.imageUrl, isProduction);
     }
 
-    // Save the new chunk to the 'chunks' collection and update the original words.
+    // ------------------------------------------------------------------------
+    // PHASE 5: SAVE CHUNK & FINALIZE WORDS
+    // ------------------------------------------------------------------------
     const insertedChunk = await chunksCollection.insertOne(newChunk);
     const newChunkId = insertedChunk.insertedId;
-    await wordsCollection.updateMany({ _id: { $in: wordsToChunk.map(w => w._id) } }, { $set: { chunkId: newChunkId } });
 
-    if (newChunk.imageUrl) io.emit('newImageSealed', { imageUrl: newChunk.imageUrl });
+    await wordsCollection.updateMany(
+      { _id: { $in: wordsToChunk.map(w => w._id) } },
+      { $set: { chunkId: newChunkId } }
+    );
+
+    if (newChunk.imageUrl) {
+      io.emit('newImageSealed', { imageUrl: newChunk.imageUrl });
+    }
+
     logger.info({ chunkHash: hash.substring(0, 12) }, '[history] Successfully sealed chunk');
+
+    // ------------------------------------------------------------------------
+    // PHASE 6: ENTER TITLE MODE & INVALIDATE STALE BOT WORK
+    // ------------------------------------------------------------------------
+    botMustStartNewChapter = true;
+    botHasFinishedChapter = false;
+    botIsWritingChapterTitle = true; // stays true until endRound unlocks
+    botQueue = [];
+    botGenEpoch = (typeof botGenEpoch === 'number' ? botGenEpoch + 1 : 1);
+
   } catch (err) {
+    // ------------------------------------------------------------------------
+    // ERROR HANDLING: ROLLBACK CLAIMS
+    // ------------------------------------------------------------------------
     logger.error({ err }, '[history] Error sealing new chunk');
+
+    if (claimedWordsCount > 0) {
+      await wordsCollection.updateMany(
+        { chunkId: null },
+        { $set: { chunkId: null } }
+      );
+      logger.warn(`[history] Rolled back ${claimedWordsCount} words from processing state.`);
+    }
+
+  } finally {
+    // ------------------------------------------------------------------------
+    // SIGNAL BOT STATE (post-attempt)
+    // ------------------------------------------------------------------------
+    botMustStartNewChapter = true;
+    botHasFinishedChapter = false;
+    currentWritingStyle = null;
+    // Do NOT reset botIsWritingChapterTitle here; it will be released in endRound
   }
 }
+
+
 
 /**
  * Loads the most recent words from the database on server startup
@@ -340,32 +510,131 @@ setInterval(() => {
   if (!Number.isFinite(remainingMs)) return;
 
   // --- Bot Trigger Logic ---
-  const botPostInterval = (constants.BOT_INTERVAL_MINUTES || 3) * 60 * 1000;
-  const timeSinceLastBotPost = now - lastBotPostTimestamp;
+  // Calculate round timing to trigger the bot at the halfway point.
+  const roundDurationMs = constants.ROUND_DURATION_SECONDS * 1000;
+  const timeElapsedInRound = roundDurationMs - remainingMs;
+  const isPastHalfway = timeElapsedInRound >= (roundDurationMs / 2);
+
+  // Check if any users have submitted. The bot only acts if the round is empty.
+  const noUsersHaveSubmitted = liveWords.size === 0;
+
+  // Check if the bot already has a submission in the current live round.
   const botHasAlreadySubmitted = Array.from(liveWords.values()).some(sub => sub.submitterName === constants.BOT_NAME);
 
-  // The bot runs only if its cooldown has passed, no humans have submitted, and it hasn't already submitted.
-  if (timeSinceLastBotPost > botPostInterval && liveWords.size === 0 && !botHasAlreadySubmitted) {
-    runBotSubmission({
-        liveWords, currentText, botContext, botQueue, profanityFilter,
-        broadcastLiveFeed, getCompositeKey
-    }).then(result => {
-        botQueue = result.botQueue; // Update server's botQueue state from the bot's operation.
+  // The bot should run immediately if we just sealed a chunk and need a title,
+  // otherwise it falls back to the usual halfway trigger.
+  const shouldRunImmediatelyForTitle = botMustStartNewChapter && !botHasFinishedChapter;
+
+  // Run if (A) we need a title right now OR (B) the usual halfway/no-user-submission rule.
+  if (!botIsRunning && (shouldRunImmediatelyForTitle || (isPastHalfway && noUsersHaveSubmitted && !botHasAlreadySubmitted))) {
+    // Set the lock immediately to prevent re-entry.
+    botIsRunning = true;
+
+    Promise.all([
+        // Query 1: Get all words that have not yet been sealed into a permanent chunk.
+        // This represents the current, live portion of the story.
+        wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray(),
+
+        // Query 2: Get a total count of all previously sealed chunks (chapters).
+        chunksCollection.countDocuments(),
+
+        // Query 3: Get the text of the last 50 chunks to check for recent titles.
+        chunksCollection.find({}, { projection: { text: 1 } }).sort({ ts: -1 }).limit(50).toArray()
+
+    ]).then(([currentChunkWords, totalChunkCount, recentChunks]) => {
+      // This block executes after all three database queries are complete.
+
+      // Immediately set the lock for users if no words have been submitted, meaning the bot will
+      botIsWritingChapterTitle = shouldRunImmediatelyForTitle;
+
+      // Extract just the titles from the raw chunk text using a regular expression.
+      // This creates a list for the bot to check against to avoid duplicate titles.
+      const recentTitles = recentChunks.map(chunk => chunk.title).filter(Boolean);
+
+      // Set a default target word count for the bot.
+      let dynamicTargetWordCount = TARGET_CHUNK_WORD_COUNT;
+
+      // If the server signals that a new chapter must start (e.g., after a seal),
+      // calculate the target word count dynamically based on the actual time remaining.
+      if (botMustStartNewChapter || currentChunkWords.length === 0) {
+        const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
+        // The formula converts remaining minutes into a word count, applying a 10% safety margin.
+        dynamicTargetWordCount = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.8);
+      }
+
+      // Bundle all current game data and flags into a single state object.
+      // This object will be passed to the main bot logic function.
+      const botState = {
+          liveWords,
+          currentText,
+          botContext,
+          botQueue,
+          profanityFilter,
+          broadcastLiveFeed,
+          getCompositeKey,
+          currentWritingStyle,
+          currentChunkWords,
+          totalChunkCount,
+          botMustStartNewChapter,
+          botHasFinishedChapter,
+          recentTitles,
+          dynamicTargetWordCount
+      };
+
+      // Call the bot's main logic function with the prepared state and chain the promise.
+      return runBotSubmission(botState);
+    })
+    .then(result => {
+        // This block runs only after the bot's async 'runBotSubmission' function has finished.
+        // It synchronizes the main server's state with the results of the bot's actions.
+        botQueue = result.botQueue;
+        botMustStartNewChapter = result.botMustStartNewChapter;
+        botHasFinishedChapter = result.botHasFinishedChapter;
+        currentWritingStyle = result.currentWritingStyle;
+    })
+    .catch(err => {
+        logger.error({ err }, '[bot] Failed to fetch state for bot submission');
+    })
+    .finally(() => {
+        // Whether it succeeded or failed, release the lock so the bot can run in a future round.
+        botIsRunning = false;
     });
-    lastBotPostTimestamp = now; // Reset the bot's personal timer.
   }
 
   // --- Round Ending Logic ---
   if (remainingMs <= 0) {
     endRoundAndElectWinner();
   }
-}, 500); // The loop runs every 500ms for responsiveness.
+}, 500);
 
 // ============================================================================
 // --- SERVER SETUP & MIDDLEWARE ---
 // ============================================================================
 
-app.use(pinoHttp({ logger })); // Logger for all HTTP requests.
+// Logger for all HTTP requests, with custom serializers for cleaner output.
+app.use(pinoHttp({
+  logger,
+  autoLogging: {
+    // This rule still ignores the noisy Chrome DevTools requests
+    ignore: (req) => req.url.includes('.well-known'),
+  },
+  // Add this 'serializers' block to control what gets logged
+  serializers: {
+    req(req) {
+      return {
+        method: req.method,
+        url: req.url,
+      };
+    },
+    res(res) {
+      return {
+        statusCode: res.statusCode,
+      };
+    },
+  },
+}));
+
+
 app.use(helmet({    // Security headers.
     hsts: false, crossOriginResourcePolicy: false,
     contentSecurityPolicy: { directives: {
@@ -405,18 +674,220 @@ app.use('/', createAuthRouter());
 // --- History & Chunk API Routes ---
 // These routes allow the client to fetch historical data.
 
-// Fetches a batch of words from before a given timestamp for infinite scroll.
-app.get('/api/history/before', async (req, res) => { /* ... (code from original file) ... */ });
+/**
+ * GET /api/history/before
+ * -----------------------
+ * Fetches a batch of words from before a given timestamp for infinite scroll.
+ * Returns data grouped by chunks, including image URLs.
+ */
+app.get('/api/history/before', async (req, res) => {
+  try {
+    const oldestTimestamp = parseInt(req.query.ts, 10);
+    const limit = parseInt(req.query.limit, 10) || 50;
 
-// Returns a sorted list of unique dates for which history chunks are available.
-app.get('/api/history/dates', async (req, res) => { /* ... (code from original file) ... */ });
+    if (isNaN(oldestTimestamp)) {
+      return res.status(400).json({ error: 'Invalid timestamp provided.' });
+    }
 
-// Returns an array of history chunks for a specific date.
-app.get('/api/history/:date', async (req, res) => { /* ... (code from original file) ... */ });
+    // 1. Find the older words as before.
+    const olderWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
+      .sort({ ts: -1 })
+      .limit(limit)
+      .toArray();
 
-// Provides a canonical, shareable URL for a single chunk.
-app.get('/chunk/:hash', async (req, res) => { /* ... (code from original file) ... */ });
+    if (olderWords.length === 0) {
+      return res.json([]); // No more history, return empty array.
+    }
 
+    // 2. Get the unique, non-null chunk IDs from these words.
+    const chunkIds = [...new Set(olderWords.map(w => w.chunkId).filter(id => id))];
+
+    // 3. Fetch the corresponding chunks to get their image URLs.
+    const chunks = await chunksCollection.find({ _id: { $in: chunkIds } }).toArray();
+    const chunkMap = new Map(chunks.map(c => [c._id.toString(), c]));
+
+    // 4. Group the words by their chunkId.
+    const groupedByChunk = olderWords.reduce((acc, word) => {
+      const id = word.chunkId ? word.chunkId.toString() : 'unsealed';
+      if (!acc[id]) acc[id] = [];
+      acc[id].push(word);
+      return acc;
+    }, {});
+
+    // 5. Build the final structured response.
+    const responseData = Object.keys(groupedByChunk).map(chunkId => {
+      const chunkInfo = chunkMap.get(chunkId);
+      return {
+        // Reverse words to be in chronological order for prepending on the client
+        words: groupedByChunk[chunkId].reverse(),
+        // Add imageUrl if the chunk exists and has one
+        imageUrl: chunkInfo ? chunkInfo.imageUrl : null,
+      };
+    }).reverse(); // Reverse the chunks themselves to maintain chronological order
+
+    res.json(responseData);
+
+  } catch (error) {
+    console.error('[api] Error fetching older history:', error);
+    res.status(500).json({ error: 'Failed to retrieve history.' });
+  }
+});
+
+/**
+ * GET /api/history/dates
+ * ----------------------
+ * Returns a sorted list of unique dates for which history chunks are available in the database.
+ */
+app.get('/api/history/dates', async (req, res) => {
+  try {
+    // This query finds all chunks, groups them by their UTC date, and returns the unique dates.
+    const dates = await chunksCollection.aggregate([
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$ts" } } }
+        }
+      },
+      { $sort: { _id: -1 } } // Sort dates newest to oldest
+    ]).toArray();
+
+    // Extract just the date strings from the result
+    const dateStrings = dates.map(d => d._id);
+    res.json(dateStrings);
+  } catch (err) {
+    console.error('[api] Failed to get history dates from DB:', err);
+    res.status(500).json({ error: 'Could not list history dates.' });
+  }
+});
+
+/**
+ * GET /api/history/:date
+ * ----------------------
+ * Returns an array of history chunks for a specific date.
+ * This now includes both sealed chunks and a "live" chunk of unsealed words.
+ */
+app.get('/api/history/:date', async (req, res) => {
+  const { date } = req.params;
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (!dateRegex.test(date)) {
+    return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
+  }
+
+  try {
+    const startOfDay = new Date(`${date}T00:00:00.000Z`);
+    const endOfDay = new Date(`${date}T23:59:59.999Z`);
+
+    // Query 1: Get all permanently sealed chunks for the given date.
+    const sealedChunks = await chunksCollection.find({
+      ts: {
+        $gte: startOfDay.getTime(),
+        $lte: endOfDay.getTime(),
+      },
+    }).sort({ ts: 1 }).toArray();
+
+    // Query 2: Get all unsealed words for the given date.
+    const unsealedWords = await wordsCollection.find({
+      chunkId: null,
+      ts: {
+        $gte: startOfDay.getTime(),
+        $lte: endOfDay.getTime(),
+      }
+    }).sort({ ts: 1 }).toArray();
+
+    let allChunks = [...sealedChunks];
+
+    // If there are unsealed words, package them into a temporary "live" chunk.
+    if (unsealedWords.length > 0) {
+      const liveChunk = {
+        ts: unsealedWords[0].ts, // Timestamp of the first word in the series
+        hash: 'Pending...',      // A placeholder hash
+        text: unsealedWords.map(w => w.word).join(' '),
+        words: unsealedWords,
+        isLive: true           // A flag for the front-end to identify this chunk
+      };
+      allChunks.push(liveChunk);
+    }
+
+    res.json(allChunks);
+  } catch (error) {
+    console.error(`[api] Error reading history for ${date}:`, error);
+    res.status(500).json({ error: 'Failed to retrieve history.' });
+  }
+});
+
+/**
+ * GET /chunk/:hash
+ * ----------------
+ * Provides a canonical, shareable URL for a single chunk.
+ * - For social media crawlers, it serves an HTML page with Open Graph meta tags.
+ * - For regular users, it redirects to the correct daily history page with a
+ * URL fragment to scroll the user to the specific chunk.
+ */
+app.get('/chunk/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+    if (!hash || hash.length !== 64) { // SHA-256 hashes are 64 hex characters
+      return res.status(400).send('Invalid chunk hash.');
+    }
+
+    // 1. Find the chunk in the database using its unique hash.
+    const chunk = await chunksCollection.findOne({ hash });
+
+    if (!chunk) {
+      return res.status(404).send('Chunk not found.');
+    }
+
+    // 2. Check the User-Agent to see if the visitor is a social media crawler.
+    const userAgent = req.headers['user-agent'] || '';
+    const isCrawler = /facebookexternalhit|Twitterbot|Discordbot|LinkedInBot|Pinterest/i.test(userAgent);
+
+    if (isCrawler) {
+      // 3. If it's a crawler, serve a minimal HTML page with meta tags for the preview.
+      console.log(`[share] Crawler detected (${userAgent}), serving meta tags for chunk ${hash.substring(0,12)}.`);
+      const title = `snTnz Story Chunk`;
+      const description = `"${chunk.text.substring(0, 150)}..."`;
+      const url = `${req.protocol}://${req.get('host')}/chunk/${hash}`;
+
+      res.status(200).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <meta name="description" content="${description}">
+          <meta property="og:type" content="website">
+          <meta property="og:url" content="${url}">
+          <meta property="og:title" content="${title}">
+          <meta property="og:description" content="${description}">
+          <meta property="og:image" content="${chunk.imageUrl}">
+          <meta name="twitter:card" content="summary_large_image">
+          <meta name="twitter:url" content="${url}">
+          <meta name="twitter:title" content="${title}">
+          <meta name="twitter:description" content="${description}">
+          <meta name="twitter:image" content="${chunk.imageUrl}">
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <p>${chunk.text}</p>
+          <img src="${chunk.imageUrl}" alt="AI generated image for chunk">
+        </body>
+        </html>
+      `);
+    } else {
+      // 4. If it's a regular user, redirect them to the correct history page.
+      const date = new Date(chunk.ts);
+      const dateString = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      const redirectUrl = `/history.html?date=${dateString}#${chunk.hash}`;
+
+      console.log(`[share] User detected, redirecting to: ${redirectUrl}`);
+      res.redirect(302, redirectUrl);
+    }
+
+  } catch (error) {
+    console.error('[share] Error handling chunk request:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
 
 // --- Static Files ---
 // Serves the client-side HTML, CSS, and JavaScript files from the 'public' directory.
@@ -468,6 +939,11 @@ io.on('connection', async (socket) => {
     const user = socket.request.user;
     const userId = user ? user.googleId : socket.id;
     const username = user ? user.username : 'anonymous';
+
+    // Prevent from submitting if the bot is writing the chapter title.
+    if (botIsWritingChapterTitle) {
+      return socket.emit('submissionFailed', { message: 'Please wait for the bot to finish the next chapter title.' });
+    }
 
     // Remove the user's previous submission before adding the new one.
     for (const [key, entry] of liveWords.entries()) {
@@ -526,9 +1002,9 @@ async function startServer() {
 
   // Schedule the daily chunk sealing job.
   cron.schedule(constants.HISTORY_CHUNK_SCHEDULE_CRON, () => {
-    logger.info('[cron] Trigger: sealing new chunk...');
-    sealNewChunk();
-  }, { scheduled: true, timezone: "Europe/Paris" });
+    logger.info('[history] Seal scheduled at next round end');
+    mustSeal = true;
+  });
 
   // Schedule the daily Facebook token refresh check.
   cron.schedule(constants.FB_USER_TOKEN_REFRESH_SCHEDULE_CRON, () => {

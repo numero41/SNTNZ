@@ -325,10 +325,9 @@ async function postToFacebookPage(imageUrl, message) {
  * not prevent the others from attempting to post.
  * @param {string} text - The text content to be used as the tweet/caption/message.
  * @param {string} imageUrl - The public URL of the image to be posted.
- * @param {boolean} isProduction - Flag passed to token refresh logic.
  * @returns {Promise<void>} Resolves when all posting attempts are complete.
  */
-async function postEverywhere(text, imageUrl, isProduction) {
+async function postEverywhere(text, imageUrl) {
   const jobs = [
     postToInstagram(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Instagram post failed')),
     postToFacebookPage(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Facebook Page post failed')),

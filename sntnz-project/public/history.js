@@ -42,7 +42,13 @@ import * as ui from './history-ui.js';
       // 3. Determine the target date
       const urlParams = new URLSearchParams(window.location.search);
       const requestedDate = urlParams.get('date');
-      const getTodayDateString = () => new Date().toISOString().split('T')[0];
+      const getTodayDateString = () => {
+        const d = new Date();
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
       const todayDate = getTodayDateString();
       let targetDate;
 

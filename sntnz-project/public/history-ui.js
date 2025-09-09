@@ -87,13 +87,14 @@ export function appendWordToLiveChunk(wordData) {
   // Create the new word element securely
   const wordSpan = createWordSpan(wordData);
 
-  // Append a space and then the new word element
-  liveTextBlock.appendChild(document.createTextNode(' '));
-
   // Handle newlines before appending the word
   if (wordData.styles.newline) {
       liveTextBlock.appendChild(document.createElement('br'));
   }
+  // Append a space
+  liveTextBlock.appendChild(document.createTextNode(' '));
+
+  // Add the word
   liveTextBlock.appendChild(wordSpan);
 }
 
@@ -181,6 +182,10 @@ function createChunkElement(chunkData) {
     textBlock.appendChild(document.createTextNode(' '));
   });
 
+  // Remove the first empty line
+  if (textBlock.firstChild && textBlock.firstChild.tagName === 'BR') {
+    textBlock.removeChild(textBlock.firstChild);
+  }
   // 6. FINALIZE AND RETURN
   //    Append the now fully-populated (and secure) text block to our main chunk element.
   el.appendChild(textBlock);
