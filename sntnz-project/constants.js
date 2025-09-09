@@ -32,8 +32,14 @@ if (CHUNK_DURATION_MINUTES < 60) {
   if (CHUNK_DURATION_MINUTES % 60 !== 0) {
     console.warn(`[sntnz config] WARNING: CHUNK_DURATION_MINUTES (${CHUNK_DURATION_MINUTES}) is not a clean multiple of 60. The cron schedule may not run as expected.`);
   }
-  // Example: For 120 minutes -> 2 hours -> '0 */2 * * *'
-  HISTORY_CHUNK_SCHEDULE_CRON = `0 */${hours} * * *`;
+
+  // Render.com doesn't accept "*/N" in the hours field reliably, so expand manually
+  if (Number.isInteger(hours)) {
+    const hourList = Array.from({ length: 24 / hours }, (_, i) => i * hours).join(',');
+    HISTORY_CHUNK_SCHEDULE_CRON = `0 ${hourList} * * *`;
+  } else {
+    HISTORY_CHUNK_SCHEDULE_CRON = `*/${CHUNK_DURATION_MINUTES} * * * *`; // fallback
+  }
 }
 
 module.exports = {
