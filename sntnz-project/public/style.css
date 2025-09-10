@@ -1160,9 +1160,11 @@ body {
   background-color: var(--color-black);
   -webkit-mask: var(--icon) no-repeat center / contain;
   mask: var(--icon) no-repeat center / contain;
+  pointer-events: none;
+  transition: background-color 0.2s ease-in-out;
 }
 
-.icon:hover {
+.social-link:hover .icon {
   background-color: var(--color-grey2);
 }
 

@@ -35,6 +35,7 @@ const cors = require('cors');               // Enables and configures Cross-Orig
 const pinoHttp = require('pino-http');      // A very fast and efficient JSON logger for HTTP requests.
 const passport = require('passport');       // The authentication framework, used here for session management with Socket.IO.
 const logger = require('./logger');         // The logging helper
+const { notifyError, flushNow } = require('./mailer'); // The error notifier
 
 // --- Database Module ---
 const { MongoClient, ServerApiVersion } = require('mongodb'); // The official MongoDB driver for Node.js.
@@ -90,15 +91,17 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 let currentText = [];               // An array holding the most recent winning words.
 let currentWritingStyle = null;     // The current writing style
+let currentTitle = null;            // The current title
 let liveWords = new Map();          // A map of currently submitted words for the active round.
 let nextTickTimestamp = computeNextRoundEndTime(); // The timestamp for when the current round ends.
 let botContext = [];                // The context buffer for the Gemini bot.
 let botQueue = [];                  // The word queue for the Gemini bot's current sentence.
 let shuttingDown = false;           // A flag to prevent multiple shutdown procedures from running.
-let botIsWritingChapterTitle = false; // Signals that the bot is currently writing a chapter title.
-let botMustStartNewChapter = false; // Signals that the bot must start a new chapter.
-let botHasFinishedChapter = false;  // Tracks if the bot has done its job for the current chunk..
+let botMustWriteTitle = false;      // Signals that the bot must write a title for a new chunk.
+let botMustStartChapter = false;    // Signals that the bot must start a new chapter.
+let botMustContinueChapter = false; // Signals that the bot must start a new chapter.
 let botIsRunning = false;           // A lock to prevent the bot from running multiple times at once.
+let submissionIsLocked = false;     // Prevents users from writing during the sealing process until the bot has finished generating a title
 let mustSeal = false;
 const TARGET_CHUNK_WORD_COUNT = Math.floor(((constants.CHUNK_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
 
@@ -117,7 +120,7 @@ const client = new MongoClient(DATABASE_URL, {
 });
 
 // These variables will be assigned after the database connection is established.
-let usersCollection, wordsCollection, chunksCollection;
+let usersCollection, wordsCollection, chunksCollection, unsealedChunkCollection;
 
 /**
  * Establishes a connection to the MongoDB Atlas cluster and initializes
@@ -130,6 +133,7 @@ async function connectToDatabase() {
     usersCollection = db.collection('users');
     wordsCollection = db.collection('words');
     chunksCollection = db.collection('chunks');
+    unsealedChunkCollection = db.collection('unsealedChunks');
     logger.info("[db] Successfully connected to MongoDB Atlas!");
   } catch (err) {
     logger.error({ err }, "[db] Failed to connect to MongoDB");
@@ -276,9 +280,100 @@ function calculateMinutesUntilNextSeal(cronSchedule) {
   return Math.ceil(diffMs / (1000 * 60)); // Return minutes, rounded up.
 }
 
+/**
+ * Calculates how many words the bot should write to complete a chapter
+ * precisely at the next scheduled seal time.
+ * @param {Array} currentChunkWords - An array of word objects already in the chunk.
+ * @returns {number} The number of words the bot should generate.
+ */
+function calculateWordsUntilNextSeal(currentChunkWords = []) {
+  // First, calculate the total target size of the chapter based on time.
+  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
+  const totalTargetSize = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.8);
+
+  // Then, subtract the words already written to find the remainder.
+  const wordsWritten = currentChunkWords.length;
+  const targetWordCount = totalTargetSize - wordsWritten;
+
+  // Ensure the bot always writes at least a couple of words.
+  return Math.max(2, targetWordCount);
+}
+
 // ============================================================================
 // --- CORE GAME & HISTORY LOGIC ---
 // ============================================================================
+
+/**
+ * Decides if the bot should act for the current round and triggers its logic.
+ * @description This function is the sole entry point for the bot's turn. It is
+ * called once at the start of each new round from `endRoundAndElectWinner`.
+ * It evaluates the game state to determine if the bot should process its
+ * existing queue or generate new content, then calls `runBotSubmission`.
+ * @returns {Promise<void>} A promise that completes when the bot's turn is finished.
+ */
+async function triggerBot() {
+  // --- 1. DEFINE BOT'S POSSIBLE ACTIONS ---
+  // The bot has two primary reasons to act: to speak or to think.
+  // The bot should act if it's in the middle of a sentence.
+  const hasQueueToProcess = botQueue.length > 0;
+
+  // The bot should think of new content if its work isn't done AND one of
+  // three conditions is met: it must write a title, it must start a chapter,
+  // or it's a normal round and no users have submitted.
+  const shouldAddContent = hasQueueToProcess || botMustWriteTitle || botMustStartChapter || botMustContinueChapter;
+
+  // --- 3. EXECUTE BOT LOGIC ---
+  // If the bot is not already running and has a reason to act, start its turn.
+  if (!botIsRunning && shouldAddContent) {
+    botIsRunning = true; // Engage the safety lock to prevent concurrent runs.
+
+    // Fetch all necessary data from the database before calling the bot.
+    Promise.all([
+      wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray(),
+      chunksCollection.countDocuments(),
+      chunksCollection.find({}, { projection: { title: 1 } }).sort({ ts: -1 }).limit(50).toArray(),
+    ])
+    .then(([currentChunkWords, totalChunkCount, recentChunks]) => {
+      // Assemble the complete state object to pass to the bot.
+      const recentTitles = recentChunks.map(chunk => chunk.title).filter(Boolean);
+      const targetWordCount = calculateWordsUntilNextSeal(currentChunkWords);
+      const botState = {
+        liveWords,
+        botContext,
+        botQueue,
+        broadcastLiveFeed,
+        getCompositeKey,
+        currentTitle,
+        currentWritingStyle,
+        currentChunkWords,
+        totalChunkCount,
+        botMustWriteTitle,
+        botMustStartChapter,
+        botMustContinueChapter,
+        recentTitles,
+        targetWordCount,
+      };
+
+      // Call the main bot logic with the prepared state.
+      return runBotSubmission(botState);
+    })
+    .then(result => {
+      // After the bot returns, synchronize the server's state with the result.
+      botQueue = result.botQueue;
+      botMustWriteTitle = result.botMustWriteTitle;
+      botMustStartChapter = result.botMustStartChapter;
+      botMustContinueChapter = result.botMustContinueChapter;
+      currentTitle = result.currentTitle;
+      currentWritingStyle = result.currentWritingStyle;
+    })
+    .catch(err => {
+      logger.error({ err }, '[bot] Bot execution promise chain failed');
+    })
+    .finally(() => {
+      botIsRunning = false; // Always release the safety lock when done.
+    });
+  }
+}
 
 /**
  * @summary Ends the current round, elects a winning word, and saves it to the database.
@@ -335,8 +430,8 @@ async function endRoundAndElectWinner() {
     // 7. Unlock for users if the bot was writing a title
     // The lock is released only if it was ON, the last word was a title,
     // and a new winner exists that is NOT a title word.
-    if (botIsWritingChapterTitle && winner.isTitle) {
-      botIsWritingChapterTitle = false;
+    if (botMustStartChapter && winner.isTitle) {
+      submissionIsLocked = false;
       logger.info('[server] Title sequence complete. Releasing user submission lock.');
     }
 
@@ -344,15 +439,20 @@ async function endRoundAndElectWinner() {
     if (winner.username !== constants.BOT_NAME) {
       logger.info({}, '[bot] A user won the round. Clearing bot queue and allowing a fresh turn.');
       botQueue = [];
-      botHasFinishedChapter = false;
+      botMustStartChapter = false;
+      botMustContinueChapter = true;
     }
     logger.info({winner: winner.word}, '[server] A word has been chosen.');
   }
 
   // After finishing the round, run sealing if scheduled
+  // After processing the winner, check if a seal is needed.
   if (mustSeal) {
     mustSeal = false;
-    await sealNewChunk();
+    await sealNewChunk(); // This will in turn call triggerBot for the new title.
+  } else {
+    // If not sealing, trigger the bot for a normal new round.
+    await triggerBot();
   }
 }
 
@@ -369,7 +469,14 @@ async function sealNewChunk() {
     // LOCK DURING SEAL
     // Prevent user submissions while we seal and prepare the next chapter title.
     // ------------------------------------------------------------------------
-    botIsWritingChapterTitle = true;
+    submissionIsLocked = true;
+    botMustWriteTitle = true;
+    botMustStartChapter = false;
+    botMustContinueChapter = false;
+    botQueue = [];
+    currentTitle = null;
+    currentWritingStyle = null;
+
     logger.info('[history] Sealing new chunk: User submissions are now locked.');
     io.emit('imageGenerationStarted');
 
@@ -400,9 +507,9 @@ async function sealNewChunk() {
     }, '').trim();
 
     // Extract title from the first word if flagged as title
-    let chunkTitle = 'Untitled';
+    currentTitle = 'Untitled';
     if (wordsToChunk[0].isTitle && wordsToChunk[0].word.startsWith('Chapter')) {
-      chunkTitle = wordsToChunk[0].word;
+      currentTitle = wordsToChunk[0].word;
     }
 
     // ------------------------------------------------------------------------
@@ -416,7 +523,7 @@ async function sealNewChunk() {
     const newChunk = {
       ts: wordsToChunk[0].ts, // timestamp of first word
       hash,
-      title: chunkTitle,
+      title: currentTitle,
       text: chunkText,
       words: wordsToChunk,
       imageUrl,
@@ -447,13 +554,10 @@ async function sealNewChunk() {
     logger.info({ chunkHash: hash.substring(0, 12) }, '[history] Successfully sealed chunk');
 
     // ------------------------------------------------------------------------
-    // PHASE 6: ENTER TITLE MODE & INVALIDATE STALE BOT WORK
+    // PHASE 6: TRIGGER BOT FOR NEXT CHAPTER
     // ------------------------------------------------------------------------
-    botMustStartNewChapter = true;
-    botHasFinishedChapter = false;
-    botIsWritingChapterTitle = true; // stays true until endRound unlocks
-    botQueue = [];
-    botGenEpoch = (typeof botGenEpoch === 'number' ? botGenEpoch + 1 : 1);
+    logger.info('[history] Triggering bot for new chapter title.');
+    await triggerBot();
 
   } catch (err) {
     // ------------------------------------------------------------------------
@@ -462,24 +566,19 @@ async function sealNewChunk() {
     logger.error({ err }, '[history] Error sealing new chunk');
 
     if (claimedWordsCount > 0) {
+      // This part of your error handling seems incorrect.
+      // It should revert the claimed words, not just any words with chunkId: null.
+      // A better implementation would be to use the IDs from `wordsToChunk`.
+      const wordIdsToRevert = wordsToChunk.map(w => w._id);
       await wordsCollection.updateMany(
-        { chunkId: null },
-        { $set: { chunkId: null } }
+        { _id: { $in: wordIdsToRevert } },
+        { $unset: { chunkId: "" } } // Use $unset for a cleaner rollback
       );
       logger.warn(`[history] Rolled back ${claimedWordsCount} words from processing state.`);
     }
 
-  } finally {
-    // ------------------------------------------------------------------------
-    // SIGNAL BOT STATE (post-attempt)
-    // ------------------------------------------------------------------------
-    botMustStartNewChapter = true;
-    botHasFinishedChapter = false;
-    currentWritingStyle = null;
-    // Do NOT reset botIsWritingChapterTitle here; it will be released in endRound
   }
 }
-
 
 
 /**
@@ -489,12 +588,52 @@ async function sealNewChunk() {
 async function loadInitialTextFromHistory() {
   logger.info('[history] Loading initial text from database...');
   try {
-    const recentWords = await wordsCollection.find().sort({ ts: -1 }).limit(constants.CURRENT_TEXT_LENGTH).toArray();
-    currentText = recentWords.reverse();
-    logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words');
+    let restoredWords = [];
+    // 1. Attempt to restore the live chunk from a backup.
+    const backup = await unsealedChunkCollection.findOneAndDelete({ _id: 'live_chunk_backup' });
+
+    if (backup && backup.words && backup.words.length > 0) {
+      logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
+      restoredWords = backup.words;
+    }
+
+    // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
+    if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
+      const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
+
+      // Determine the point in time to query before. If no backup, start from now.
+      const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
+
+      logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
+
+      // 3. Fetch the required number of older words from the main collection.
+      const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
+        .sort({ ts: -1 })
+        .limit(wordsNeeded)
+        .toArray();
+
+      // 4. Combine the older (padding) words with the live (restored) words.
+      currentText = paddingWords.reverse().concat(restoredWords);
+
+    } else {
+      // 5. If the backup was long enough, just take the most recent part of it.
+      currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
+    }
+
+    // 6. Populate the bot's context with the fully-loaded text.
+    logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
     currentText.forEach(w => {
       botContext = pushBotContext(w.word, botContext);
     });
+
+    //7. Update bot state
+    if (restoredWords.length === 1) {
+      botMustStartChapter = true;
+    } else if (restoredWords.length > 1) {
+      botMustContinueChapter = true;
+    } else if (restoredWords.length === 0) {
+      botMustWriteTitle = true;
+    }
   } catch (error) {
     logger.error({ err: error }, '[history] Failed to load initial text');
   }
@@ -503,107 +642,29 @@ async function loadInitialTextFromHistory() {
 // ============================================================================
 // --- GAME LOOP ---
 // ============================================================================
-// This interval is the main heartbeat of the application.
 setInterval(() => {
   const now = Date.now();
   const remainingMs = nextTickTimestamp - now;
-  if (!Number.isFinite(remainingMs)) return;
-
-  // --- Bot Trigger Logic ---
-  // Calculate round timing to trigger the bot at the halfway point.
-  const roundDurationMs = constants.ROUND_DURATION_SECONDS * 1000;
-  const timeElapsedInRound = roundDurationMs - remainingMs;
-  const isPastHalfway = timeElapsedInRound >= (roundDurationMs / 2);
-
-  // Check if any users have submitted. The bot only acts if the round is empty.
-  const noUsersHaveSubmitted = liveWords.size === 0;
-
-  // Check if the bot already has a submission in the current live round.
-  const botHasAlreadySubmitted = Array.from(liveWords.values()).some(sub => sub.submitterName === constants.BOT_NAME);
-
-  // The bot should run immediately if we just sealed a chunk and need a title,
-  // otherwise it falls back to the usual halfway trigger.
-  const shouldRunImmediatelyForTitle = botMustStartNewChapter && !botHasFinishedChapter;
-
-  // Run if (A) we need a title right now OR (B) the usual halfway/no-user-submission rule.
-  if (!botIsRunning && (shouldRunImmediatelyForTitle || (isPastHalfway && noUsersHaveSubmitted && !botHasAlreadySubmitted))) {
-    // Set the lock immediately to prevent re-entry.
-    botIsRunning = true;
-
-    Promise.all([
-        // Query 1: Get all words that have not yet been sealed into a permanent chunk.
-        // This represents the current, live portion of the story.
-        wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray(),
-
-        // Query 2: Get a total count of all previously sealed chunks (chapters).
-        chunksCollection.countDocuments(),
-
-        // Query 3: Get the text of the last 50 chunks to check for recent titles.
-        chunksCollection.find({}, { projection: { text: 1 } }).sort({ ts: -1 }).limit(50).toArray()
-
-    ]).then(([currentChunkWords, totalChunkCount, recentChunks]) => {
-      // This block executes after all three database queries are complete.
-
-      // Immediately set the lock for users if no words have been submitted, meaning the bot will
-      botIsWritingChapterTitle = shouldRunImmediatelyForTitle;
-
-      // Extract just the titles from the raw chunk text using a regular expression.
-      // This creates a list for the bot to check against to avoid duplicate titles.
-      const recentTitles = recentChunks.map(chunk => chunk.title).filter(Boolean);
-
-      // Set a default target word count for the bot.
-      let dynamicTargetWordCount = TARGET_CHUNK_WORD_COUNT;
-
-      // If the server signals that a new chapter must start (e.g., after a seal),
-      // calculate the target word count dynamically based on the actual time remaining.
-      if (botMustStartNewChapter || currentChunkWords.length === 0) {
-        const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
-        // The formula converts remaining minutes into a word count, applying a 10% safety margin.
-        dynamicTargetWordCount = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.8);
-      }
-
-      // Bundle all current game data and flags into a single state object.
-      // This object will be passed to the main bot logic function.
-      const botState = {
-          liveWords,
-          currentText,
-          botContext,
-          botQueue,
-          profanityFilter,
-          broadcastLiveFeed,
-          getCompositeKey,
-          currentWritingStyle,
-          currentChunkWords,
-          totalChunkCount,
-          botMustStartNewChapter,
-          botHasFinishedChapter,
-          recentTitles,
-          dynamicTargetWordCount
-      };
-
-      // Call the bot's main logic function with the prepared state and chain the promise.
-      return runBotSubmission(botState);
-    })
-    .then(result => {
-        // This block runs only after the bot's async 'runBotSubmission' function has finished.
-        // It synchronizes the main server's state with the results of the bot's actions.
-        botQueue = result.botQueue;
-        botMustStartNewChapter = result.botMustStartNewChapter;
-        botHasFinishedChapter = result.botHasFinishedChapter;
-        currentWritingStyle = result.currentWritingStyle;
-    })
-    .catch(err => {
-        logger.error({ err }, '[bot] Failed to fetch state for bot submission');
-    })
-    .finally(() => {
-        // Whether it succeeded or failed, release the lock so the bot can run in a future round.
-        botIsRunning = false;
-    });
-  }
 
   // --- Round Ending Logic ---
+  // If the round is over, end it and start the next one.
   if (remainingMs <= 0) {
     endRoundAndElectWinner();
+    return; // Stop this tick to avoid running bot logic immediately.
+  }
+
+  // --- Bot Trigger Logic (Mid-Round) ---
+  const roundDurationMs = constants.ROUND_DURATION_SECONDS * 1000;
+  const timeElapsedInRound = roundDurationMs - remainingMs;
+  const isPastQuarterWay = timeElapsedInRound >= (roundDurationMs / 4);
+  const noUsersHaveSubmitted = liveWords.size === 0;
+
+  // The bot should ONLY be triggered mid-round to continue a story.
+  const shouldContinueStory = botMustContinueChapter && isPastQuarterWay && noUsersHaveSubmitted;
+
+  if (shouldContinueStory) {
+    // We only need to trigger the bot here; it already knows what to do.
+    triggerBot();
   }
 }, 500);
 
@@ -941,7 +1002,7 @@ io.on('connection', async (socket) => {
     const username = user ? user.username : 'anonymous';
 
     // Prevent from submitting if the bot is writing the chapter title.
-    if (botIsWritingChapterTitle) {
+    if (submissionIsLocked) {
       return socket.emit('submissionFailed', { message: 'Please wait for the bot to finish the next chapter title.' });
     }
 
@@ -1028,27 +1089,62 @@ async function shutdown(sig) {
   shuttingDown = true;
   logger.info({ signal: sig }, '[shutdown] Received signal');
 
-  // Stop taking new work.
-  io.close(() => logger.info('[shutdown] sockets closed'));
-  server.close(() => logger.info('[shutdown] http server closed'));
-
-  // Attempt to seal any remaining words into a final chunk.
-  try {
-    logger.info('[shutdown] Attempting to seal final chunk...');
-    await sealNewChunk();
-  } catch (err) {
-    logger.error({ err }, '[shutdown] Final chunk seal failed');
-  }
-
-  // Set a timeout to force exit if shutdown hangs.
-  setTimeout(() => {
-    logger.warn('[shutdown] Graceful shutdown timed out. Exiting.');
-    process.exit(0);
+  // Set a failsafe timeout to force exit if anything hangs.
+  const timeoutId = setTimeout(() => {
+    logger.warn('[shutdown] Graceful shutdown timed out. Forcing exit.');
+    process.exit(1); // Exit with an error code on timeout.
   }, 5000);
+
+  try {
+    // 1. Stop taking new work.
+    io.close();
+    server.close();
+    logger.info('[shutdown] Sockets and HTTP server closed.');
+
+    // 2. Find and save any unsealed words.
+    const unsealedWords = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
+    if (unsealedWords.length > 0) {
+      logger.info(`[shutdown] Saving ${unsealedWords.length} unsealed words.`);
+      await unsealedChunkCollection.updateOne(
+        { _id: 'live_chunk_backup' },
+        { $set: { words: unsealedWords, style: currentWritingStyle, savedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+
+    // 3. IMPORTANT: Close the database connection.
+    await client.close();
+    logger.info('[shutdown] MongoDB connection closed.');
+
+    // 4. If everything was successful, clear the failsafe timeout...
+    clearTimeout(timeoutId);
+
+    // 5. ...and exit cleanly.
+    logger.info('[shutdown] Shutdown complete. Exiting.');
+    process.exit(0);
+
+  } catch (err) {
+    logger.error({ err }, '[shutdown] An error occurred during shutdown.');
+    clearTimeout(timeoutId); // Clear timeout even on error
+    process.exit(1); // Exit with an error code.
+  }
 }
 
 // Listen for shutdown signals.
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('unhandledRejection', (reason) => {
+  const msg = reason && reason.stack ? reason.stack : String(reason);
+  notifyError(`[unhandledRejection] ${msg}`);
+});
+
+process.on('uncaughtException', (err) => {
+  notifyError(`[uncaughtException] ${err.stack || err.message || String(err)}`);
+});
+
+process.on('beforeExit', () => {
+  // Try to send any buffered errors before the process exits.
+  flushNow();
+});
 
 startServer();

@@ -15,7 +15,7 @@ const ROUND_DURATION_SECONDS_PROD = 60;
 const CHUNK_DURATION_MINUTES_PROD = 360;
 
 const ROUND_DURATION_SECONDS_DEV = 30;
-const CHUNK_DURATION_MINUTES_DEV = 2;
+const CHUNK_DURATION_MINUTES_DEV = 5;
 
 // --- Dynamically Calculate Values Before Exporting ---
 const CHUNK_DURATION_MINUTES = isProduction ? CHUNK_DURATION_MINUTES_PROD : CHUNK_DURATION_MINUTES_DEV;
@@ -54,6 +54,7 @@ module.exports = {
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",
   BOT_NAME: "SNTNZ_BOT",
+  BOT_ID: "sntnz_bot",
   AI_TIMEOUT_MS: 25000,
 
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],

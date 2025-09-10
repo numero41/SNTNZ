@@ -131,28 +131,25 @@ function selectWritingStyle() {
 }
 
 /**
- * @summary Generates a new chapter, including a title and a full story.
- * @description This function is called when the bot detects the start of a new, empty chunk.
- * It selects a writing style, prompts Gemini to create a title, then prompts Gemini
- * again to write a ~360-word story based on that title and style.
- * @param {number} totalChunkCount - The total number of chunks created so far.
- * @returns {Promise<Array<object>>} A promise that resolves to a queue of word objects for submission.
+ * Generates a unique chapter title.
+ * @param {number} totalChunkCount - The total number of previously sealed chunks, used for chapter numbering.
+ * @param {string[]} [recentTitles=[]] - An array of recent titles to avoid duplication.
+ * @param {object} currentWritingStyle - The writing style object to guide the AI.
+ * @returns {Promise<object[]>} A promise that resolves to a queue containing the formatted title object.
  */
-async function generateNewChapter(totalChunkCount, targetWordCount, recentTitles = [], currentWritingStyle) {
-  logger.info('[bot] Starting a new chapter...');
+async function generateNewTitle(totalChunkCount, recentTitles = [], currentWritingStyle) {
+  logger.info('[bot] Generating a title...');
   const chapterNumber = totalChunkCount + 1;
-  let title = `Chapter ${chapterNumber}`;
-  let story = '';
-  const newQueue = [];
+  let title = 'A New Beginning'; // Default title in case of failure
+  let newQueue = [];
 
   try {
     const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
     const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
-    // --- Step 1: Generate Title ---
+    // --- 1. Generate a unique title candidate ---
     const MAX_TITLE_ATTEMPTS = 3;
     let isUnique = false;
-
     for (let i = 0; i < MAX_TITLE_ATTEMPTS; i++) {
       const titlePrompt = `
         You are a master storyteller. Your current task is to create a chapter title for a new story to begin.
@@ -168,37 +165,61 @@ async function generateNewChapter(totalChunkCount, targetWordCount, recentTitles
           contents: [{ role: "user", parts: [{ text: titlePrompt }] }],
           generationConfig: { maxOutputTokens: 50, temperature: 0.8 },
       }));
-
       const candidateTitle = (titleResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/["“”]/g, '');
 
-      // Check if the generated title is in the list of recent titles (case-insensitive).
+      // Check if the generated title is new and valid.
       if (candidateTitle && !recentTitles.some(t => t.toLowerCase() === candidateTitle.toLowerCase())) {
         title = candidateTitle;
         isUnique = true;
-        break; // Exit the loop on success
+        break; // Exit the loop on success.
       }
       logger.warn(`[bot] Generated duplicate or empty title ('${candidateTitle}'). Retrying... (${i + 1}/${MAX_TITLE_ATTEMPTS})`);
     }
 
-    // If the loop fails, use a generic fallback title.
     if (!isUnique) {
-      title = `A New Beginning`;
       logger.error('[bot] Failed to generate a unique title after multiple attempts. Using fallback.');
     }
 
-    logger.info({ title }, '[bot] Generated chapter title');
+    // --- 2. Format the title and build the queue ---
+    const finalTitleText = `Chapter ${chapterNumber}: "${title}"`;
+    newQueue.push({
+        word: finalTitleText,
+        styles: { bold: true, italic: false, underline: false, newline: true },
+        isTitle: true
+    });
 
-    // --- Step 2: Generate Story ---
+    logger.info({ title: finalTitleText }, '[bot] New title generated and queued.');
+    return newQueue; // Return immediately on success.
+
+  } catch (err) {
+    logger.error({ err }, '[bot] Failed to generate title.');
+    return []; // Return an empty array on failure.
+  }
+}
+
+/**
+ * Generates the main story text for a chapter that already has a title.
+ * @param {number} targetWordCount - The approximate number of words the story should have.
+ * @param {string} currentTitle - The title of the chapter to write a story for.
+ * @param {object} currentWritingStyle - The writing style object to guide the AI.
+ * @returns {Promise<object[]>} A promise that resolves to a queue of word objects for the story.
+ */
+async function generateNewChapter(targetWordCount, currentTitle, currentWritingStyle) {
+  logger.info('[bot] Starting a new chapter...');
+  let newQueue = [];
+
+  try {
+    const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
+    const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+    // --- 1. Generate the story based on the title ---
     const storyPrompt = `
       You are a master storyteller tasked with writing a complete, self-contained story of approximately ${targetWordCount} words based on the provided chapter title.
       The story must have a clear beginning, middle, and a satisfying conclusion.
-
       Style Guide:
       - Style Name: ${currentWritingStyle.name}
       - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
-
-      Chapter Title: "${title}"
-
+      Chapter Title: "${currentTitle}"
       CRITICAL: Your entire response must be ONLY the story text. Do not repeat the title. Do not add any explanation or commentary.
     `.trim();
 
@@ -206,98 +227,85 @@ async function generateNewChapter(totalChunkCount, targetWordCount, recentTitles
         contents: [{ role: "user", parts: [{ text: storyPrompt }] }],
         generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
     }));
-    story = (storyResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    const story = (storyResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 
-    // --- Step 3: Build the Submission Queue ---
+    // --- 2. Process the story text into a word queue ---
     if (story) {
-        const storyWords = story.split(/\s+/).filter(Boolean);
-
-        // This adds another line break, followed by the complete chapter title in one submission.
-        newQueue.push({
-          word: `Chapter ${chapterNumber}: "${title}"`,
-          styles: { bold: true, italic: false, underline: false, newline: true },
-          isTitle: true
-        });
-
-        // Add story words to the queue, ensuring the first word starts on a new line.
-        if (storyWords.length > 0) {
-            storyWords.forEach((word, index) => {
-                const isFirstWord = index === 0;
-                newQueue.push({
-                    word: word,
-                    styles: {
-                        bold: false,
-                        italic: false,
-                        underline: false,
-                        newline: isFirstWord
-                    }
-                });
+        story.split(/\s+/).filter(Boolean).forEach((word, index) => {
+            newQueue.push({
+                word: word,
+                styles: {
+                    bold: false, italic: false, underline: false,
+                    isTitle: false, newline: index === 0 // Start the story on a new line.
+                }
             });
-        }
+        });
     }
+
+    logger.info({ wordCount: newQueue.length }, '[bot] New chapter generated and queued');
+    return newQueue; // Return immediately on success.
 
   } catch (err) {
       logger.error({ err }, '[bot] Failed to generate new chapter');
-      return []; // Return empty queue on failure
+      return []; // Return an empty array on failure.
   }
-
-  logger.info({ wordCount: newQueue.length, title: title, story: story }, '[bot] New chapter generated and queued');
-  return newQueue;
 }
 
 /**
- * @summary Continues a story that was started by users.
- * @description If the bot is triggered mid-chunk, this function gets the existing text,
- * determines how many words are needed to reach the ~360 target, and prompts Gemini
- * to write a conclusion to the story in the established style.
- * @param {Array<object>} currentChunkWords - An array of the word objects already in the current chunk.
- * @returns {Promise<Array<object>>} A promise that resolves to a queue of new word objects.
+ * Generates a continuation for a story started by users.
+ * @param {object[]} currentChunkWords - An array of the word objects already in the current chunk.
+ * @param {number} targetWordCount - The approximate number of words the bot should add.
+ * @param {object} currentWritingStyle - The writing style object to guide the AI.
+ * @returns {Promise<object[]>} A promise that resolves to a queue of new word objects.
  */
-async function continueStory(currentChunkWords, targetWordCount, currentWritingStyle) {
+async function continueChapter(currentChunkWords, targetWordCount, currentWritingStyle) {
     logger.info('[bot] Continuing user-initiated story...');
-    const wordsSoFar = currentChunkWords.map(w => w.word).join(' ');
-    const remainingWords = Math.max(2, targetWordCount - currentChunkWords.length);
-    let continuation = '';
-    const newQueue = [];
+    let newQueue = [];
 
     try {
-        // Conditionally select the AI model based on the number of remaining words.
-        const useProModel = remainingWords > (targetWordCount * 0.5);
+        const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
+        const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+        const wordsSoFar = currentChunkWords.map(w => w.word).join(' ');
+
+        // --- 1. Select AI model and generate the continuation text ---
+        const useProModel = targetWordCount > 100;
         const selectedModel = useProModel ? textModelPro : textModelFlash;
-        logger.info({ model: useProModel ? 'PRO' : 'LITE', remainingWords }, '[bot] Selected model for story continuation');
+        logger.info({ model: useProModel ? 'PRO' : 'LITE', targetWordCount }, '[bot] Selected model for story continuation');
 
         const continuationPrompt = `
             You are a master storyteller. A story is in progress, and your task is to continue it seamlessly and bring it to a satisfying conclusion.
-            Write approximately ${remainingWords} more words.
-
+            Write approximately ${targetWordCount} more words.
             Style Guide (adhere to this strictly):
             - Style Name: ${currentWritingStyle.name}
             - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
-
             Existing Text:
             "${wordsSoFar}"
-
             CRITICAL: Your response must be ONLY the new, continuing text. Do not repeat the existing text. Do not add any explanation.
         `.trim();
 
-        const result = await selectedModel.generateContent({
+        const result = await withTimeout(selectedModel.generateContent({
             contents: [{ role: "user", parts: [{ text: continuationPrompt }] }],
             generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
-        });
-        continuation = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+        }));
+        const continuation = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 
+        // --- 2. Process the continuation text into a word queue ---
         if (continuation) {
             continuation.split(/\s+/).filter(Boolean).forEach(word => {
-                newQueue.push({ word, styles: { bold: false, italic: false, underline: false, newline: false } });
+                newQueue.push({
+                    word,
+                    styles: { bold: false, italic: false, underline: false, newline: false }
+                });
             });
         }
+
+        logger.info({ wordCount: newQueue.length }, '[bot] Story continuation generated and queued');
+        return newQueue; // Return immediately on success.
+
     } catch (err) {
         logger.error({ err }, '[bot] Failed to continue story');
-        return [];
+        return []; // Return an empty array on failure.
     }
-
-    logger.info({ wordCount: newQueue.length, targetWordCount: targetWordCount, continuation: continuation }, '[bot] Story continuation generated and queued');
-    return newQueue;
 }
 
 /**
@@ -312,57 +320,40 @@ async function runBotSubmission(state) {
   // --- 1. SETUP & STATE DECONSTRUCTION ---
   // ==========================================================================
   // Destructure all required variables from the main state object passed by the server.
-  // 'currentWritingStyle' is now managed here, not as a module-level variable.
-  const { liveWords, getCompositeKey, broadcastLiveFeed, currentChunkWords, totalChunkCount, dynamicTargetWordCount, recentTitles, currentText } = state;
-  let { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle } = state;
+  const { liveWords, getCompositeKey, broadcastLiveFeed, currentChunkWords, totalChunkCount, targetWordCount, recentTitles } = state;
+  let { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle } = state;
 
   // ==========================================================================
-  // --- 2. HANDLE QUEUED SUBMISSIONS (with last-winner guard) ---
+  // --- 2. HANDLE QUEUED SUBMISSIONS ---
   // ==========================================================================
-  // If the last round was won by a user (not the bot), any existing queue is stale
-  // and must be discarded so we regenerate fresh content for this round.
-  const lastWinner = Array.isArray(currentText) && currentText.length > 0 ? currentText[currentText.length - 1] : null;
-
+  // If the bot has a queue of words, it submits the next one.
+  // The server is responsible for clearing this queue if a user wins a round.
   if (botQueue.length > 0) {
-    if (lastWinner && lastWinner.username !== constants.BOT_NAME) {
-      logger.info('[bot] Last winner was a user; discarding stale queue and regenerating.');
-      botQueue = [];
-      botHasFinishedChapter = false;
-    } else {
-      const plannedSubmission = botQueue.shift(); // Take the next word from the front of the queue.
-      const compositeKey = getCompositeKey(plannedSubmission);
+    const plannedSubmission = botQueue.shift(); // Take the next word from the queue.
+    const compositeKey = getCompositeKey(plannedSubmission);
 
-      // Add the word to the live feed for users to vote on.
-      if (!liveWords.has(compositeKey)) {
-        liveWords.set(compositeKey, {
-          ...plannedSubmission,
-          submitterId: 'sntnz_bot',
-          submitterName: constants.BOT_NAME,
-          ts: Date.now(),
-          votes: new Map([['sntnz_bot', 1]]) // The bot always upvotes its own submissions.
-        });
-      }
-      broadcastLiveFeed();
-
-      // Return the updated state to the server.
-      return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+    // Add the word to the live feed for users to vote on.
+    if (!liveWords.has(compositeKey)) {
+      liveWords.set(compositeKey, {
+        ...plannedSubmission,
+        submitterId: constants.BOT_ID,
+        submitterName: constants.BOT_NAME,
+        ts: Date.now(),
+        votes: new Map([[constants.BOT_ID, 1]]) // The bot always upvotes its own submissions.
+      });
     }
+    broadcastLiveFeed();
+
+    // Return the updated state to the server and stop further execution for this turn.
+    return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
   }
 
   // ==========================================================================
-  // --- 3. GUARD CLAUSE: CHECK IF WORK IS DONE ---
-  // ==========================================================================
-  // If the queue is empty but the bot has already completed its main writing task
-  // for this chapter, do nothing. This prevents the bot from adding more words to a finished chapter.
-  if (botHasFinishedChapter) {
-    return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
-  }
-
-  // ==========================================================================
-  // --- 4. CONTENT GENERATION LOGIC ---
+  // --- 3. CONTENT GENERATION LOGIC ---
   // ==========================================================================
   // If the queue is empty and work is not done, the bot must decide what to write.
   const isNewChunk = currentChunkWords.length === 0;
+  const hasTitleOnly = currentChunkWords.length === 1;
   let newQueue = [];
 
   // If a writing style hasn't been chosen for this chapter yet, select one now.
@@ -370,36 +361,49 @@ async function runBotSubmission(state) {
     currentWritingStyle = selectWritingStyle();
   }
 
-  // A) START A NEW CHAPTER: If the server signals a new chapter is needed or the chunk is empty.
-  if (botMustStartNewChapter || isNewChunk) {
-    logger.info('[bot] Server signaled a new chapter must be started.');
-    newQueue = await generateNewChapter(totalChunkCount, dynamicTargetWordCount, recentTitles, currentWritingStyle);
+  // A) WRITE A TITLE: If the server signals a new chapter is needed or the chunk is empty.
+  if (botMustWriteTitle || isNewChunk) {
+    logger.info('[bot] Server signaled a new title must be written.');
+    newQueue = await generateNewTitle(totalChunkCount, recentTitles, currentWritingStyle);
     if (newQueue.length > 0) {
-      botMustStartNewChapter = false; // Reset the signal flag.
-      botHasFinishedChapter = true;   // Mark the bot's main job as complete for this chunk.
+      currentTitle = newQueue[0].word;
+      botMustWriteTitle = false;
+      botMustStartChapter = true;
+      botMustContinueChapter = false;
+    }
+  }
+  // B) START A NEW CHAPTER: If the server signals a new chapter is needed.
+  else if (botMustStartChapter || hasTitleOnly) {
+    logger.info('[bot] Server signaled a new chapter must be started.');
+    newQueue = await generateNewChapter(targetWordCount, currentTitle, currentWritingStyle);
+    if (newQueue.length > 0) {
+      botMustWriteTitle = false;
+      botMustStartChapter = false;
+      botMustContinueChapter = true;
     }
   }
   // B) CONTINUE AN EXISTING STORY: If users have started writing but the chunk isn't full.
-  else {
-    if (currentChunkWords.length < dynamicTargetWordCount) {
-        newQueue = await continueStory(currentChunkWords, dynamicTargetWordCount, currentWritingStyle);
-        if (newQueue.length > 0) {
-          botHasFinishedChapter = true; // Mark the bot's main job as complete for this chunk.
-        }
-    } else {
-        logger.info('[bot] Chunk is complete. Bot will not add more words.');
+  else if (botMustContinueChapter && targetWordCount > 0) {
+    logger.info('[bot] Server signaled the chapter should be updated from new content.');
+    newQueue = await continueChapter(currentChunkWords, targetWordCount, currentWritingStyle);
+    if (newQueue.length > 0) {
+      botMustWriteTitle = false;
+      botMustStartChapter = false;
+      botMustContinueChapter = true;
     }
+  } else {
+    logger.info('[bot] Chunk is complete. Bot will not add more words.');
   }
 
   // ==========================================================================
-  // --- 5. POPULATE QUEUE & SUBMIT FIRST WORD ---
+  // --- 4. POPULATE QUEUE & SUBMIT FIRST WORD ---
   // ==========================================================================
   // If the generation step produced new words, populate the bot's queue.
   if (newQueue.length > 0) {
       botQueue = newQueue;
   } else {
       // If generation failed or wasn't needed, exit and return the current state.
-      return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+      return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
   }
 
   // Immediately submit the first word from the newly populated queue.
@@ -410,20 +414,20 @@ async function runBotSubmission(state) {
     if (!liveWords.has(compositeKey)) {
         liveWords.set(compositeKey, {
             ...firstSubmission,
-            submitterId: 'sntnz_bot',
+            submitterId: constants.BOT_ID,
             submitterName: constants.BOT_NAME,
             ts: Date.now(),
-            votes: new Map([['sntnz_bot', 1]])
+            votes: new Map([[constants.BOT_ID, 1]])
         });
     }
     broadcastLiveFeed();
   }
 
   // ==========================================================================
-  // --- 6. RETURN FINAL UPDATED STATE ---
+  // --- 5. RETURN FINAL UPDATED STATE ---
   // ==========================================================================
   // Return all state variables, which will be used to update the main server state.
-  return { botQueue, botMustStartNewChapter, botHasFinishedChapter, currentWritingStyle };
+  return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
 }
 
 // ============================================================================
