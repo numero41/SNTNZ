@@ -26,56 +26,61 @@ import * as ui from './history-ui.js';
    * Fetches the latest data from the API and re-renders the entire page content.
    * This function is called on initial load and then periodically by the poller.
    */
-  async function fetchAndRenderHistory() {
+async function fetchAndRenderHistory() {
     try {
-      // 1. Fetch the application configuration (which includes the cron schedule)
+      // 1. Fetch application configuration and all available dates for pagination
       const configResponse = await fetch('/config');
       const CFG = await configResponse.json();
       const cronSchedule = CFG.HISTORY_CHUNK_SCHEDULE_CRON;
-
-      // 2. Fetch all available dates for pagination
       const allDates = await (await fetch('/api/history/dates')).json();
-      if (!allDates || allDates.length === 0) {
-        // Keep this check for the case where there is no history at all.
-        throw new Error('No history is available yet.');
-      }
 
-      // 3. Determine the target date
+      // 2. Determine which data to fetch based on the URL
       const urlParams = new URLSearchParams(window.location.search);
-      let targetDate = urlParams.get('date');
+      const requestedDate = urlParams.get('date');
+      let chunks, targetDate;
 
-      // If no date is in the URL, default to the current UTC date.
-      // This is the key change to ensure we request the correct "today".
-      if (!targetDate) {
-        const now = new Date();
-        const year = now.getUTCFullYear();
-        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(now.getUTCDate()).padStart(2, '0');
-        targetDate = `${year}-${month}-${day}`;
+      if (requestedDate) {
+        // Case A: A specific date is in the URL, so we fetch it directly.
+        targetDate = requestedDate;
+        const historyRes = await fetch(`/api/history/${targetDate}`, { cache: 'no-store' });
+        if (!historyRes.ok) throw new Error(`Could not load history for ${targetDate}.`);
+        chunks = await historyRes.json();
+      } else {
+        // Case B: No date is in the URL. We ask the server for the "latest" content.
+        // This avoids timezone and clock-drift issues.
+        const latestRes = await fetch(`/api/history/latest`, { cache: 'no-store' });
+        if (!latestRes.ok) throw new Error('Could not load latest history.');
+        const latestData = await latestRes.json();
+
+        chunks = latestData.chunks;
+        targetDate = latestData.date; // Use the date the server told us is "today"
+
+        // Update the browser's URL to include the specific date without reloading the page.
+        // This makes the state clean and allows for bookmarking or refreshing.
+        const newUrl = `${window.location.pathname}?date=${targetDate}`;
+        history.pushState({ path: newUrl }, '', newUrl);
       }
 
-      // 4. Fetch the history data for the target date
-      const historyRes = await fetch(`/api/history/${targetDate}`, { cache: 'no-store' });
-      if (!historyRes.ok) {
-        throw new Error(`Could not load history for ${targetDate}.`);
+      // 3. Process the fetched data
+      if (!chunks || (Array.isArray(chunks) && chunks.length === 0)) {
+        throw new Error('No history is available for this day.');
       }
-      const chunks = await historyRes.json();
       const allWords = chunks.flatMap(chunk => chunk.words || []);
 
-      // 5. Find the timestamp of the very last word on the page.
+      // 4. Find the timestamp of the very last word on the page (for live updates)
       if (allWords.length > 0) {
         lastWordTimestamp = allWords[allWords.length - 1].ts;
       }
 
-      // Preserve scroll position...
+      // 5. Preserve the user's scroll position before re-rendering
       const scrollPosition = window.scrollY;
 
-      // 6. Use the UI module to render the page content (no change here)
+      // 6. Use the UI module to render all page components
       ui.renderHistory(historyContainer, chunks, cronSchedule);
       ui.renderContributorsDropdown(contributorsContainer, allWords, historyContainer);
       ui.renderPagination(paginationContainer, allDates, targetDate);
 
-      // Restore the user's scroll position
+      // 7. Restore the user's scroll position
       window.scrollTo(0, scrollPosition);
 
     } catch (error) {

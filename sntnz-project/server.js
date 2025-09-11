@@ -836,6 +836,48 @@ app.get('/api/history/before', async (req, res) => {
 });
 
 /**
+ * GET /api/history/latest
+ * -----------------------
+ * Always returns the chunks for the server's current UTC date, including the live chunk.
+ * Also returns the date string it used, so the client can update its state.
+ */
+app.get('/api/history/latest', async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const startOfDay = new Date(`${today}T00:00:00.000Z`);
+    const endOfDay = new Date(`${today}T23:59:59.999Z`);
+
+    // Get sealed chunks for today
+    const sealedChunks = await chunksCollection.find({
+      ts: { $gte: startOfDay.getTime(), $lte: endOfDay.getTime() },
+    }).sort({ ts: 1 }).toArray();
+
+    // Get ALL unsealed words to form the live chunk
+    const unsealedWords = await wordsCollection.find({
+      chunkId: null,
+    }).sort({ ts: 1 }).toArray();
+
+    const allChunks = [...sealedChunks];
+    if (unsealedWords.length > 0) {
+      allChunks.push({
+        ts: unsealedWords[0].ts,
+        hash: 'Pending...',
+        text: unsealedWords.map(w => w.word).join(' '),
+        words: unsealedWords,
+        isLive: true,
+      });
+    }
+
+    // Return both the chunks and the date used
+    res.json({ date: today, chunks: allChunks });
+
+  } catch (error) {
+    console.error(`[api] Error fetching latest history:`, error);
+    res.status(500).json({ error: 'Failed to retrieve history.' });
+  }
+});
+
+/**
  * GET /api/history/dates
  * ----------------------
  * Returns a sorted list of unique dates for which history chunks are available in the database.
