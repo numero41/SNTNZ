@@ -816,58 +816,27 @@ app.get('/api/share-text/:hash', async (req, res) => {
 /**
  * GET /api/history/before
  * -----------------------
- * Fetches a batch of words from before a given timestamp for infinite scroll.
- * Returns data grouped by chunks, including image URLs.
+ * Fetches a batch of whole, ordered chunks from before a given timestamp.
+ * This is the new, robust method for infinite scroll.
  */
 app.get('/api/history/before', async (req, res) => {
   try {
     const oldestTimestamp = parseInt(req.query.ts, 10);
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = 3;
 
     if (isNaN(oldestTimestamp)) {
       return res.status(400).json({ error: 'Invalid timestamp provided.' });
     }
 
-    // 1. Find the older words as before.
-    const olderWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
-      .sort({ ts: -1 })
+    const olderChunks = await chunksCollection.find({ ts: { $lt: oldestTimestamp } })
+      .sort({ ts: -1, _id: -1 })
       .limit(limit)
       .toArray();
 
-    if (olderWords.length === 0) {
-      return res.json([]); // No more history, return empty array.
-    }
-
-    // 2. Get the unique, non-null chunk IDs from these words.
-    const chunkIds = [...new Set(olderWords.map(w => w.chunkId).filter(id => id))];
-
-    // 3. Fetch the corresponding chunks to get their image URLs.
-    const chunks = await chunksCollection.find({ _id: { $in: chunkIds } }).toArray();
-    const chunkMap = new Map(chunks.map(c => [c._id.toString(), c]));
-
-    // 4. Group the words by their chunkId.
-    const groupedByChunk = olderWords.reduce((acc, word) => {
-      const id = word.chunkId ? word.chunkId.toString() : 'unsealed';
-      if (!acc[id]) acc[id] = [];
-      acc[id].push(word);
-      return acc;
-    }, {});
-
-    // 5. Build the final structured response.
-    const responseData = Object.keys(groupedByChunk).map(chunkId => {
-      const chunkInfo = chunkMap.get(chunkId);
-      return {
-        // Reverse words to be in chronological order for prepending on the client
-        words: groupedByChunk[chunkId],
-        // Add imageUrl if the chunk exists and has one
-        imageUrl: chunkInfo ? chunkInfo.imageUrl : null,
-      };
-    }).reverse(); // Reverse the chunks themselves to maintain chronological order
-
-    res.json(responseData);
+    res.json(olderChunks);
 
   } catch (error) {
-    console.error('[api] Error fetching older history:', error);
+    console.error('[api] Error fetching older history chunks:', error);
     res.status(500).json({ error: 'Failed to retrieve history.' });
   }
 });

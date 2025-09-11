@@ -786,120 +786,91 @@ function addFormAndStyleEvents() {
 // ============================================================================
 
 /**
- * Fetches older words from the server and prepends them to the display.
+ * Fetches older chunks from the server and prepends them to the display.
  * This function implements the "infinite scroll" feature for browsing history
  * and updates the in-memory image timeline.
  */
 async function loadMoreHistory() {
-  // --- PRE-FLIGHT CHECKS ---
-  // If we are already in the middle of loading, or if we know there's no more history,
-  // or if the initial text array is empty, exit immediately to prevent errors or duplicate requests.
   if (isLoadingMore || noMoreHistory || currentWordsArray.length === 0) {
     return;
   }
-
-  // --- SET LOADING STATE ---
-  // Set the flag to true to prevent this function from being called again while this request is in progress.
   isLoadingMore = true;
 
-  // Get the timestamp of the very first (oldest) word currently displayed on the client.
-  // This will be used as a cursor to ask the server for words *before* this point.
   const oldestTimestamp = currentWordsArray[0].ts;
 
   try {
-    // --- API REQUEST ---
-    // Fetch the older history from the server, passing our oldest timestamp as a query parameter.
-    // The server will return data already grouped by chunks.
-    const response = await fetch(`/api/history/before?ts=${oldestTimestamp}&limit=50`);
-    const chunkGroups = await response.json(); // Data is an array of objects: [{imageUrl, words}, ...]
+    const response = await fetch(`/api/history/before?ts=${oldestTimestamp}`);
+    // chunkGroups are received from server newest-to-oldest, e.g., [267, 266, 265]
+    const chunkGroups = await response.json();
 
-    // --- PROCESS RESPONSE ---
-    // Check if the server returned any new chunk groups.
     if (chunkGroups.length > 0) {
       const container = currentTextContainer;
-
-      // Store the container's scroll height *before* adding new content.
-      // This is crucial for maintaining the user's scroll position so their view doesn't jump.
       const oldScrollHeight = container.scrollHeight;
-
-      // This will temporarily hold the timeline data for the new chunks we just loaded.
       const newTimelineEntries = [];
 
-      // --- RENDER NEW CONTENT & PREPARE TIMELINE DATA ---
-      // Loop through each chunk group returned by the server.
+      // --- 1. RENDER CONTENT ---
+      // We process the chunks in the order we receive them (newest-to-oldest).
+      // This will result in the OLDEST of the new chunks appearing at the top of the screen.
       chunkGroups.forEach(group => {
-        // First, prepend all the words from this chunk to the text container.
-        group.words.forEach(wordData => {
-            // Defensively create a 'styles' object to prevent errors if it's missing on old data.
+        // Words in the DB are chronological. Prepend reverses them, so we must loop backwards.
+        for (let i = group.words.length - 1; i >= 0; i--) {
+            const wordData = group.words[i];
             const styles = wordData.styles || {};
             const wordSpan = document.createElement('span');
             wordSpan.className = 'word';
 
-            // Store all metadata on the element itself using data-* attributes for the tooltip.
             wordSpan.dataset.ts = wordData.ts;
             wordSpan.dataset.username = wordData.username;
             wordSpan.dataset.count = wordData.count;
             wordSpan.dataset.total = wordData.total;
             wordSpan.dataset.pct = wordData.pct;
 
-            // Handle newlines by prepending a <br> tag before the word.
-            if (styles.newline) {
-              container.prepend(document.createElement('br'));
-            }
-
-            // Set the text content and apply styles using our safe 'styles' object.
             wordSpan.textContent = wordData.word;
             wordSpan.style.fontWeight = styles.bold ? 'bold' : 'normal';
             wordSpan.style.fontStyle = styles.italic ? 'italic' : 'normal';
             wordSpan.style.textDecoration = styles.underline ? 'underline' : 'none';
 
-            // Prepend a space for separation, then prepend the word span itself.
-            // Using prepend() correctly builds the content in reverse order at the top.
-            container.prepend(document.createTextNode(' '));
             container.prepend(wordSpan);
+            container.prepend(document.createTextNode(' '));
 
-            // Add an extra newline if the word is also a chapter title
-            if (wordData.isTitle) {
-                container.prepend(document.createElement('br'));
+            if (styles.newline) {
+              container.prepend(document.createElement('br'));
             }
-        });
+            if (wordData.isTitle) {
+              container.prepend(document.createElement('br'));
+            }
+        }
 
-        // Next, if this chunk has an image, create a timeline entry for it.
         if (group.imageUrl && group.words.length > 0) {
             newTimelineEntries.push({
-                start_ts: group.words[0].ts, // Timestamp of the first word in this chunk
-                end_ts: group.words[group.words.length - 1].ts, // Timestamp of the last word
+                start_ts: group.words[0].ts,
+                end_ts: group.words[group.words.length - 1].ts,
                 imageUrl: group.imageUrl
             });
         }
       });
 
-      // --- UPDATE CLIENT STATE ---
-      // Prepend the new timeline entries to our main in-memory timeline.
-      imageTimeline = [...newTimelineEntries, ...imageTimeline];
-
-      // Flatten the words from all new chunks into a single array.
-      const allNewWords = chunkGroups.flatMap(g => g.words);
-      // Prepend this new array of words to our main client-side word array.
+      // --- 2. UPDATE STATE for the NEXT PAGINATION ---
+      // To correctly set the cursor for the *next* fetch, we need to find the oldest word.
+      // This requires reversing a *copy* of the chunks array to get them oldest-to-newest.
+      const reversedChunkGroups = [...chunkGroups].reverse();
+      const allNewWords = reversedChunkGroups.flatMap(g => g.words);
       currentWordsArray = [...allNewWords, ...currentWordsArray];
-      // Re-render the contributors dropdown with the updated list of authors.
+
+      // Update other UI elements
+      imageTimeline = [...newTimelineEntries.reverse(), ...imageTimeline];
       renderContributorsDropdown(mainContributorsContainer, currentWordsArray, container);
 
       // --- MAINTAIN SCROLL POSITION ---
-      // Calculate the new total height of the content.
       const newScrollHeight = container.scrollHeight;
-      // Adjust the scroll position so the user's view remains on the same word they were looking at.
       container.scrollTop = newScrollHeight - oldScrollHeight;
 
     } else {
-      // If the server returns an empty array, it means we've reached the beginning of history.
-      noMoreHistory = true; // Set this flag to prevent future requests.
+      noMoreHistory = true;
     }
   } catch (error) {
     console.error("Failed to load more history:", error);
   } finally {
-    // --- RESET LOADING STATE ---
-    // Whether the request succeeded or failed, reset the loading flag so the user can trigger it again.
     isLoadingMore = false;
   }
 }
