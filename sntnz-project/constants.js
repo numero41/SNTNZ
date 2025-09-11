@@ -13,8 +13,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 const ROUND_DURATION_SECONDS_PROD = 60;
 const CHUNK_DURATION_MINUTES_PROD = 360;
 
-const ROUND_DURATION_SECONDS_DEV = 30;
-const CHUNK_DURATION_MINUTES_DEV = 5;
+const ROUND_DURATION_SECONDS_DEV = 60;
+const CHUNK_DURATION_MINUTES_DEV = 360;
 
 // --- Dynamically Calculate Values Before Exporting ---
 const CHUNK_DURATION_MINUTES = isProduction ? CHUNK_DURATION_MINUTES_PROD : CHUNK_DURATION_MINUTES_DEV;

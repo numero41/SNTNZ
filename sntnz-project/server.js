@@ -586,52 +586,71 @@ async function sealNewChunk() {
  */
 async function loadInitialTextFromHistory() {
   logger.info('[history] Loading initial text from database...');
+
   try {
-    let restoredWords = [];
-    // 1. Attempt to restore the live chunk from a backup.
-    const backup = await unsealedChunkCollection.findOneAndDelete({ _id: 'live_chunk_backup' });
+    // --- FIRST CHAPTER INIT IF DB IS EMPTY ---
+    // If, after all loading attempts, no chunks exist in the database,
+    // we will force the bot to create the very first one.
+    const chunkCount = await chunksCollection.countDocuments();
+    if (chunkCount === 0) {
+      logger.info('[history] Database is empty. Forcing bot to create the first chunk.');
 
-    if (backup && backup.words && backup.words.length > 0) {
-      logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
-      restoredWords = backup.words;
-    }
-
-    // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
-    if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
-      const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
-
-      // Determine the point in time to query before. If no backup, start from now.
-      const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
-
-      logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
-
-      // 3. Fetch the required number of older words from the main collection.
-      const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
-        .sort({ ts: -1 })
-        .limit(wordsNeeded)
-        .toArray();
-
-      // 4. Combine the older (padding) words with the live (restored) words.
-      currentText = paddingWords.reverse().concat(restoredWords);
-
-    } else {
-      // 5. If the backup was long enough, just take the most recent part of it.
-      currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
-    }
-
-    // 6. Populate the bot's context with the fully-loaded text.
-    logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
-    currentText.forEach(w => {
-      botContext = pushBotContext(w.word, botContext);
-    });
-
-    //7. Update bot state
-    if (restoredWords.length === 1) {
-      botMustStartChapter = true;
-    } else if (restoredWords.length > 1) {
-      botMustContinueChapter = true;
-    } else if (restoredWords.length === 0) {
+      // Set the bot's state to ensure it writes a new title.
       botMustWriteTitle = true;
+      botMustStartChapter = false;
+      botMustContinueChapter = false;
+
+      // Immediately trigger the bot to begin the generation process.
+      await triggerBot();
+    }
+    // --- Otherwise, load unsealed words from last shutdown ---
+    else {
+      let restoredWords = [];
+      // 1. Attempt to restore the live chunk from a backup.
+      const backup = await unsealedChunkCollection.findOneAndDelete({ _id: 'live_chunk_backup' });
+
+      if (backup && backup.words && backup.words.length > 0) {
+        logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
+        restoredWords = backup.words;
+      }
+
+      // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
+      if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
+        const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
+
+        // Determine the point in time to query before. If no backup, start from now.
+        const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
+
+        logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
+
+        // 3. Fetch the required number of older words from the main collection.
+        const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
+          .sort({ ts: -1 })
+          .limit(wordsNeeded)
+          .toArray();
+
+        // 4. Combine the older (padding) words with the live (restored) words.
+        currentText = paddingWords.reverse().concat(restoredWords);
+
+      } else {
+        // 5. If the backup was long enough, just take the most recent part of it.
+        currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
+      }
+
+      // 6. Populate the bot's context with the fully-loaded text.
+      logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
+      currentText.forEach(w => {
+        botContext = pushBotContext(w.word, botContext);
+      });
+
+      //7. Update bot state
+      if (restoredWords.length === 1) {
+        botMustStartChapter = true;
+      } else if (restoredWords.length > 1) {
+        botMustContinueChapter = true;
+      } else if (restoredWords.length === 0) {
+        botMustWriteTitle = true;
+      }
     }
   } catch (error) {
     logger.error({ err: error }, '[history] Failed to load initial text');
