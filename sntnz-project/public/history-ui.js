@@ -130,6 +130,13 @@ function createChunkElement(chunkData) {
     ? `<span class="chunk-seal-timer" title="These words are not yet sealed.">Calculating...</span>`
     : `<span class="chunk-hash" title="Copy Hash" data-hash="${chunkData.hash}">${chunkData.hash.substring(0, 12)}...</span>`;
 
+  // Create the share button if the chunk is sealed
+  const shareButtonHtml = chunkData.isLive ? '' : `
+    <button class="share-btn">
+      ${shareIcon} Share
+    </button>
+  `;
+
   //    If an imageUrl exists for this chunk, prepare the image HTML. Otherwise, this remains an empty string.
   let imageHtml = '';
   if (chunkData.imageUrl) {
@@ -151,8 +158,7 @@ function createChunkElement(chunkData) {
         ${hashDisplay}
       </div>
       <div class="chunk-actions">
-        <button class="share-btn" data-text="${chunkData.text}">
-          ${shareIcon} Share
+        ${shareButtonHtml}
         </button>
       </div>
     </div>
@@ -270,29 +276,36 @@ export function setupEventListeners(historyContainer, tooltip) {
       const chunkHash = chunkElement.dataset.hash;
       if (!chunkHash) return;
 
-      const textToShare = shareButton.dataset.text;
-      const url = `${window.location.origin}/chunk/${chunkHash}`;
-      const shareData = { title: 'snTnz History Chunk', text: `"${textToShare}"`, url: url };
+      // --- Fetch the formatted text from the server ---
+      let textToShare = "Read this story from the sntnz project."; // A default fallback text
+      try {
+        const response = await fetch(`/api/share-text/${chunkHash}`);
+        const data = await response.json();
+        if (data.shareText) {
+          textToShare = data.shareText;
+        }
+      } catch (err) {
+        console.error("Failed to fetch share text:", err);
+      }
 
-      // Progressive Enhancement: Use the modern Web Share API if available.
+      const shortHash = chunkHash.substring(0, 12);
+      const url = `${window.location.origin}/chunk/${shortHash}`;
+      const shareData = { title: 'snTnz Story Chunk', text: textToShare, url: url };
+
+      // Use the modern Web Share API if available.
       if (navigator.share) {
         try {
           await navigator.share(shareData);
-        } catch (err) {
-          // This can happen if the user cancels the share dialog.
-          console.error("Share failed:", err.message);
-        }
+        } catch (err) { /* User likely cancelled the share */ }
       } else {
-        // Fallback: If the Share API isn't supported, copy the text to the clipboard.
-        const fallbackText = `"${textToShare}"\n\nFrom the snTnz project history:\n${url}`;
-        await navigator.clipboard.writeText(fallbackText);
+        // Fallback: If Share API isn't supported, copy the text to the clipboard.
+        await navigator.clipboard.writeText(textToShare);
 
-        // Provide visual feedback to the user.
         const originalButtonText = shareButton.innerHTML;
         shareButton.innerHTML = 'Copied!';
         setTimeout(() => { shareButton.innerHTML = originalButtonText; }, 2000);
       }
-      return; // Stop further processing since we handled the click.
+      return;
     }
 
     // --- Copy Hash Logic ---

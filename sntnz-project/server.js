@@ -45,12 +45,11 @@ const constants = require('./constants');   // Centralized application constants
 const { AllProfanity } = require('allprofanity'); // A library for filtering out offensive words.
 const { initializeAuth, createAuthRouter, sessionMiddleware } = require('./auth'); // All user authentication and session logic.
 const { initBots, runBotSubmission, generateAndUploadImage, pushBotContext } = require('./bots'); // AI logic for Gemini and Imagen.
-const { initSocial, postEverywhere, checkAndRefreshFbLongToken } = require('./social'); // Social media posting logic.
+const { initSocial, postEverywhere, checkAndRefreshFbLongToken, formatPostText } = require('./social'); // Social media posting logic.
 
 // ============================================================================
 // --- CONFIGURATION & SERVER SETUP ---
 // ============================================================================
-
 const app = express();
 const server = http.createServer(app);
 
@@ -775,6 +774,44 @@ app.use('/', createAuthRouter());
 
 // --- History & Chunk API Routes ---
 // These routes allow the client to fetch historical data.
+/**
+ * GET /api/share-text/:hash
+ * -------------------------
+ * Generates the canonical, truncated, and formatted text for a given
+ * chunk, suitable for sharing on social media like X.
+ */
+app.get('/api/share-text/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+    if (!hash) {
+      return res.status(400).json({ error: 'A chunk hash is required.' });
+    }
+
+    // Find the chunk using the potentially short hash
+    const chunk = await chunksCollection.findOne({ hash: new RegExp(`^${hash}`) });
+    if (!chunk) {
+      return res.status(404).json({ error: 'Chunk not found.' });
+    }
+
+    // Reuse the exact same logic as the social media posts
+    const shortHash = chunk.hash.substring(0, 12);
+    const shareableUrl = `https://www.sntnz.com/chunk/${shortHash}`;
+
+    const shareText = formatPostText(
+      chunk.text,
+      shareableUrl,
+      constants.SOCIAL_X_HASHTAGS || '',
+      constants.TWITTER_MAX_CHARS,
+      23 // Use the standard 23 characters for Twitter's URL length
+    );
+
+    res.json({ shareText });
+
+  } catch (error) {
+    logger.error({ err: error }, '[api] Error generating share text');
+    res.status(500).json({ error: 'Failed to generate share text.' });
+  }
+});
 
 /**
  * GET /api/history/before
@@ -821,7 +858,7 @@ app.get('/api/history/before', async (req, res) => {
       const chunkInfo = chunkMap.get(chunkId);
       return {
         // Reverse words to be in chronological order for prepending on the client
-        words: groupedByChunk[chunkId].reverse(),
+        words: groupedByChunk[chunkId],
         // Add imageUrl if the chunk exists and has one
         imageUrl: chunkInfo ? chunkInfo.imageUrl : null,
       };

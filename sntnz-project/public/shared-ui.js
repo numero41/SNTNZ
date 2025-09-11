@@ -322,3 +322,4 @@ export function throttle(func, delay) {
     }, delay);
   };
 }
+

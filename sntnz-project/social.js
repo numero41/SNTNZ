@@ -408,6 +408,7 @@ async function postEverywhere(fullText, shareableUrl, imageUrl) {
 
 module.exports = {
   initSocial,
+  formatPostText,
   postEverywhere,
   checkAndRefreshFbLongToken,
 };
