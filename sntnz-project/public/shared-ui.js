@@ -231,37 +231,39 @@ export function startSealCountdown(element, cronSchedule) {
     const hourPart = parts[1];
     const now = new Date();
 
-    const nextSealDate = new Date();
-    nextSealDate.setSeconds(0, 0); // Reset seconds and milliseconds for clean countdowns
+    // Create the date object based on current time but work with its UTC components
+    const nextSealDate = new Date(now.getTime());
+    nextSealDate.setUTCSeconds(0, 0);
 
     // Case 1: "Every X minutes" schedule (e.g., '*/5 * * * *')
     if (minutePart.startsWith('*/')) {
       const interval = parseInt(minutePart.substring(2), 10);
-      const currentMinutes = now.getMinutes();
-      const remainder = currentMinutes % interval;
+      const currentUTCMinutes = now.getUTCMinutes();
+      const remainder = currentUTCMinutes % interval;
       const minutesToAdd = interval - remainder;
 
-      // Add the remaining minutes to the current time
-      nextSealDate.setMinutes(now.getMinutes() + minutesToAdd);
+      nextSealDate.setUTCMinutes(now.getUTCMinutes() + minutesToAdd);
       return nextSealDate;
     }
 
     // Case 2: Specific hours schedule (e.g., '0 8,16,0 * * *')
     if (hourPart !== '*' && !hourPart.includes('/')) {
-        const scheduledMinute = parseInt(minutePart, 10);
-        const scheduledHours = hourPart.split(',').map(h => parseInt(h, 10)).sort((a, b) => a - b);
+      const scheduledMinute = parseInt(minutePart, 10);
+      const scheduledHours = hourPart.split(',').map(h => parseInt(h, 10)).sort((a, b) => a - b);
+      const currentUTCHour = now.getUTCHours();
+      const currentUTCMinute = now.getUTCMinutes();
 
-        let nextHour = scheduledHours.find(h => h > now.getHours() || (h === now.getHours() && scheduledMinute > now.getMinutes()));
+      let nextHour = scheduledHours.find(h => h > currentUTCHour || (h === currentUTCHour && scheduledMinute > currentUTCMinute));
 
-        if (nextHour !== undefined) {
-            // Next seal is later today
-            nextSealDate.setHours(nextHour, scheduledMinute);
-        } else {
-            // Next seal is tomorrow at the first scheduled hour
-            nextSealDate.setDate(now.getDate() + 1);
-            nextSealDate.setHours(scheduledHours[0], scheduledMinute);
-        }
-        return nextSealDate;
+      if (nextHour !== undefined) {
+        // Next seal is later today (in UTC)
+        nextSealDate.setUTCHours(nextHour, scheduledMinute);
+      } else {
+        // Next seal is tomorrow (in UTC) at the first scheduled hour
+        nextSealDate.setUTCDate(now.getUTCDate() + 1);
+        nextSealDate.setUTCHours(scheduledHours[0], scheduledMinute);
+      }
+      return nextSealDate;
     }
 
     // Fallback for unsupported cron formats

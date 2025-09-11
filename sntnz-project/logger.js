@@ -50,7 +50,7 @@ const logger = pino({
  *  - logger.error({obj}, 'message')
  *  - logger.error({obj}, 'a', 'b')    // will join extra args
  */
-/*const _error = logger.error.bind(logger);
+const _error = logger.error.bind(logger);
 logger.error = (...args) => {
   try {
     let line;
@@ -88,6 +88,6 @@ logger.error = (...args) => {
 
   // Always call the original logger
   return _error(...args);
-};*/
+};
 
 module.exports = logger;

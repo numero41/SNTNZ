@@ -10,7 +10,6 @@
 // Check the environment. Default to 'development' if NODE_ENV is not set.
 const isProduction = process.env.NODE_ENV === 'production';
 
-
 const ROUND_DURATION_SECONDS_PROD = 60;
 const CHUNK_DURATION_MINUTES_PROD = 360;
 
@@ -55,7 +54,7 @@ module.exports = {
   ANONYMOUS_NAME: "Anonymous",
   BOT_NAME: "SNTNZ_BOT",
   BOT_ID: "sntnz_bot",
-  AI_TIMEOUT_MS: 25000,
+  AI_TIMEOUT_MS: 50000,
 
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
 
@@ -66,10 +65,13 @@ module.exports = {
   GEMINI_MODEL_PRO:'gemini-2.5-pro',
 
   // --- Social Media ---
+  DEFAULT_SOCIAL_IMAGE_URL: 'https://storage.googleapis.com/sntnz-assets/default-social-image.png',
+  TWITTER_MAX_CHARS: 250,
+  IG_MAX_CHARS: 400,
   FB_GRAPH_VERSION: 'v23.0',
   FB_USER_TOKEN_REFRESH_SCHEDULE_CRON: '30 3 * * *',
   SOCIAL_HASHTAGS: '#AIart #GenerativeArt #AutonomousArt #CollaborativeWriting #DigitalLiterature #Automation #AIGenerated #AI #TextToImage #ArtMachine #AIBot #EndlessStory #CollectiveCreativity #CreativeCoding #WritingCommunity #Web3 #DigitalOwnership #NFTart #AIartist #sntnz',
-  SOCIAL_X_HASHTAGS: '#AIart #GenerativeArt #AutonomousArt #CollaborativeWriting #DigitalLiterature #TextToImage #CreativeCoding #WritingCommunity #NFTart #sntnz',
+  SOCIAL_X_HASHTAGS: '#AIart #GenerativeArt #CollaborativeWriting #CreativeCoding #sntnz',
 
   // --- Validation ---
   PUNCTUATION_REGEX_STRING: "^[(\"'*_]*[a-zA-Z0-9'-]+[.,!?;:...\"'_)]*$",

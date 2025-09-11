@@ -430,7 +430,7 @@ async function endRoundAndElectWinner() {
     // 7. Unlock for users if the bot was writing a title
     // The lock is released only if it was ON, the last word was a title,
     // and a new winner exists that is NOT a title word.
-    if (botMustStartChapter && winner.isTitle) {
+    if (submissionIsLocked && botMustWriteTitle && !winner.isTitle) {
       submissionIsLocked = false;
       logger.info('[server] Title sequence complete. Releasing user submission lock.');
     }
@@ -530,10 +530,9 @@ async function sealNewChunk() {
       style: currentWritingStyle ? currentWritingStyle.name : 'User-Initiated',
     };
 
-    if (newChunk.imageUrl && isProduction) {
+    if (isProduction) {
       const shareableUrl = `https://www.sntnz.com/chunk/${newChunk.hash}`;
-      const crossText = `${newChunk.text.substring(0, 180)}...\n\nRead more at:\n${shareableUrl}`;
-      await postEverywhere(crossText, newChunk.imageUrl, isProduction);
+      await postEverywhere(newChunk.text, shareableUrl, newChunk.imageUrl);
     }
 
     // ------------------------------------------------------------------------
@@ -846,16 +845,18 @@ app.get('/api/history/:date', async (req, res) => {
       },
     }).sort({ ts: 1 }).toArray();
 
-    // Query 2: Get all unsealed words for the given date.
-    const unsealedWords = await wordsCollection.find({
-      chunkId: null,
-      ts: {
-        $gte: startOfDay.getTime(),
-        $lte: endOfDay.getTime(),
-      }
-    }).sort({ ts: 1 }).toArray();
-
     let allChunks = [...sealedChunks];
+    let unsealedWords = [];
+
+    // Check if the requested date is the server's current UTC date.
+    const serverTodayUTC = new Date().toISOString().split('T')[0];
+
+    // If it's today, we fetch ALL unsealed words to show the live chunk.
+    if (date === serverTodayUTC) {
+      unsealedWords = await wordsCollection.find({
+        chunkId: null,
+      }).sort({ ts: 1 }).toArray();
+    }
 
     // If there are unsealed words, package them into a temporary "live" chunk.
     if (unsealedWords.length > 0) {
@@ -1065,7 +1066,7 @@ async function startServer() {
   cron.schedule(constants.HISTORY_CHUNK_SCHEDULE_CRON, () => {
     logger.info('[history] Seal scheduled at next round end');
     mustSeal = true;
-  });
+  }, { scheduled: true, timezone: 'UTC' });
 
   // Schedule the daily Facebook token refresh check.
   cron.schedule(constants.FB_USER_TOKEN_REFRESH_SCHEDULE_CRON, () => {
@@ -1073,7 +1074,7 @@ async function startServer() {
     checkAndRefreshFbLongToken(7, isProduction).catch(err => {
       logger.error({ err }, '[cron] Token refresh failed');
     });
-  }, { scheduled: true, timezone: 'Europe/Paris' });
+  }, { scheduled: true, timezone: 'UTC' });
 
   // Start listening for connections.
   server.listen(PORT, () => logger.info({ port: PORT }, 'Server is running'));
@@ -1101,15 +1102,21 @@ async function shutdown(sig) {
     server.close();
     logger.info('[shutdown] Sockets and HTTP server closed.');
 
-    // 2. Find and save any unsealed words.
-    const unsealedWords = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
-    if (unsealedWords.length > 0) {
-      logger.info(`[shutdown] Saving ${unsealedWords.length} unsealed words.`);
+    // 2. Find all unsealed words.
+    const allUnsealedWords = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
+    const lastTitleIndex = allUnsealedWords.findLastIndex(w => w.isTitle === true);
+
+    // Only save the current chapter if it has a valid title.
+    if (lastTitleIndex !== -1) {
+      const wordsToSave = allUnsealedWords.slice(lastTitleIndex);
+      logger.info(`[shutdown] Saving ${wordsToSave.length} unsealed words from current chapter.`);
       await unsealedChunkCollection.updateOne(
-        { _id: 'live_chunk_backup' },
-        { $set: { words: unsealedWords, style: currentWritingStyle, savedAt: new Date() } },
-        { upsert: true }
+          { _id: 'live_chunk_backup' },
+          { $set: { words: wordsToSave, style: currentWritingStyle, savedAt: new Date() } },
+          { upsert: true }
       );
+    } else if (allUnsealedWords.length > 0) {
+        logger.warn('[shutdown] Found unsealed words but no title. Discarding them as per rules.');
     }
 
     // 3. IMPORTANT: Close the database connection.

@@ -54,73 +54,162 @@ function initSocial() {
 }
 
 // ============================================================================
-// --- X (TWITTER) POSTING ---
+// --- POSTING MAIN FUNCTIONS ---
 // ============================================================================
 
+// --- X (TWITTER) POSTING ---
 /**
- * @summary Posts a tweet with text and an image to the X API.
- * @description The X API v1 requires a two-step process for posting media:
- * 1. The image must be downloaded from its URL and uploaded to X's media endpoint
- * to get a `media_id`.
- * 2. A new tweet is created, referencing the `media_id` to attach the image.
- * @param {string} text - The text content of the tweet (max 280 characters).
- * @param {string} imageUrl - The public URL of the image to attach.
- * @returns {Promise<void>} Resolves on success, rejects on failure.
+ * @summary Posts content to X, with or without an image.
+ * @param {string} fullText - The untruncated story text.
+ * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string|null} imageUrl - The public URL of the image to attach, or null.
+ * @returns {Promise<void>}
  */
-// FILE: social.js
-
-async function postToX(text, imageUrl) {
+async function postToX(fullText, shareableUrl, imageUrl) {
   try {
-    logger.info('[social] Starting post to X...');
+    // --- 1. Format Caption for X ---
+    const finalCaption = formatPostText(
+      fullText,
+      shareableUrl,
+      constants.SOCIAL_X_HASHTAGS || '',
+      constants.TWITTER_MAX_CHARS
+    );
 
-    // Smartly format text for X/Twitter
-    const hashtags = constants.SOCIAL_X_HASHTAGS || '';
-    const urlRegex = /(https?:\/\/[^\s]+)\s*$/; // Find URL at the end of the text
-    const urlMatch = text.match(urlRegex);
-    const url = urlMatch ? urlMatch[0].trim() : '';
-    const storyText = urlMatch ? text.substring(0, urlMatch.index).trim() : text.trim();
+    // --- 2. Post to X (with or without image) ---
+    if (imageUrl) {
+      logger.info('[social] Starting post to X with image...');
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+      const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType: 'image/png' });
 
-    // Twitter URLs are shortened to 23 chars. Leave room for separators and hashtags.
-    const maxStoryLength = 280 - (url ? 23 : 0) - hashtags.length - 4;
+      await twitterClient.v2.tweet(finalCaption, { media: { media_ids: [mediaId] } });
+      logger.info('[social] Successfully posted tweet with image to X.');
+    } else {
+      logger.info('[social] Starting text-only post to X...');
+      await twitterClient.v2.tweet(finalCaption);
+      logger.info('[social] Successfully posted text-only tweet to X.');
+    }
+  } catch (err) {
+    // --- 3. Error Handling ---
+    logger.error({ err }, '[social] Failed to post to X');
+    throw err;
+  }
+}
 
-    let finalStoryText = storyText;
-    if (storyText.length > maxStoryLength) {
-      finalStoryText = storyText.substring(0, maxStoryLength).trim();
-      // Add ellipsis if not already present from the source
-      if (!finalStoryText.endsWith('...')) {
-        finalStoryText += '...';
-      }
+// --- INSTAGRAM POSTING ---
+/**
+ * @summary Creates and publishes an Instagram photo post, using a fallback image if necessary.
+ * @param {string} fullText - The untruncated story text.
+ * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string|null} imageUrl - The public URL of the image to post.
+ * @returns {Promise<string>} The ID of the published media item.
+ */
+async function postToInstagram(fullText, shareableUrl, imageUrl) {
+  try {
+    // --- 1. Pre-flight Checks & Image Fallback ---
+    let finalImageUrl = imageUrl;
+    if (!finalImageUrl) {
+      finalImageUrl = constants.DEFAULT_SOCIAL_IMAGE_URL;
+      logger.info('[social] No image URL provided for Instagram; using default fallback image.');
     }
 
-    // Assemble the final tweet content, ensuring no empty lines
-    const tweetParts = [finalStoryText, url, hashtags].filter(Boolean);
-    const finalText = tweetParts.join('\n\n');
+    await checkAndRefreshFbLongToken(7);
+    const accessToken = FB_LONG_TOKEN_RUNTIME;
+    const igUserId = process.env.IG_USER_ID;
+    if (!accessToken || !igUserId) throw new Error('IG posting is not configured in .env');
 
-    // Step 1: Download the image from its public URL into a buffer.
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    // --- 2. Format Caption ---
+    const finalCaption = formatPostText(
+      fullText,
+      shareableUrl,
+      constants.SOCIAL_HASHTAGS || '',
+      constants.IG_MAX_CHARS
+    );
 
-    // Step 2: Upload the image buffer to the X API to get a media ID.
-    const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType: 'image/png' });
-    logger.info({ mediaId }, '[social] Image uploaded to X');
+    // --- 3. Post to Instagram (2-Step Process) ---
+    logger.info('[social] Starting post to Instagram...');
 
-    // Step 3: Post the tweet, attaching the media ID.
-    await twitterClient.v2.tweet(finalText, { media: { media_ids: [mediaId] } });
-    logger.info('[social] Successfully posted tweet to X.');
+    // Step 3a: Create the media container.
+    const createResponse = await graphPost(
+      `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${igUserId}/media`,
+      { image_url: finalImageUrl, caption: finalCaption, access_token: accessToken }
+    );
+    const creationId = createResponse?.id;
+    if (!creationId) throw new Error('IG API: No creation_id was returned.');
 
+    // Step 3b: Publish the container.
+    const publishResponse = await graphPost(
+      `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${igUserId}/media_publish`,
+      { creation_id: creationId, access_token: accessToken }
+    );
+    const mediaId = publishResponse?.id;
+    if (!mediaId) throw new Error('IG API: Media publish call returned no id.');
+
+    logger.info({ mediaId }, '[social] Successfully posted to Instagram');
+    return mediaId;
   } catch (err) {
-    // Log the full error for debugging purposes.
-    logger.error({ err }, '[social] Failed to post to X');
-    // Re-throw the error so the calling function knows about the failure.
+    // --- 4. Error Handling ---
+    logger.error({ err }, '[social] Failed to post to Instagram');
+    throw err;
+  }
+}
+
+// --- FACEBOOK PAGE POSTING ---
+/**
+ * @summary Posts content to a Facebook Page, with or without a photo.
+ * @param {string} fullText - The untruncated story text.
+ * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string|null} imageUrl - The public URL of the image, or null.
+ * @returns {Promise<string>} The ID of the created Facebook post.
+ */
+async function postToFacebookPage(fullText, shareableUrl, imageUrl) {
+  try {
+    // --- 1. Pre-flight Checks ---
+    const pageId = process.env.FB_PAGE_ID;
+    const pageToken = process.env.FB_PAGE_TOKEN;
+    if (!pageId || !pageToken) throw new Error('Facebook Page posting is not configured in .env');
+
+    // --- 2. Format Caption ---
+    const finalCaption = formatPostText(
+      fullText,
+      shareableUrl,
+      constants.SOCIAL_HASHTAGS || '',
+      constants.IG_MAX_CHARS
+    );
+
+    // --- 3. Post to Facebook Page (Photo or Text) ---
+    let response;
+    if (imageUrl) {
+      logger.info('[social] Starting photo post to Facebook Page...');
+      response = await graphPost(
+        `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${pageId}/photos`,
+        { url: imageUrl, message: finalCaption, access_token: pageToken }
+      );
+    } else {
+      logger.info('[social] Starting text-only post to Facebook Page...');
+      response = await graphPost(
+        `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${pageId}/feed`,
+        { message: finalCaption, access_token: pageToken }
+      );
+    }
+
+    // --- 4. Finalize and Log ---
+    const postId = response?.post_id || response?.id;
+    if (!postId) throw new Error('FB Page API: Post returned no id.');
+
+    logger.info({ postId }, '[social] Successfully posted to Facebook Page');
+    return postId;
+  } catch(err) {
+    // --- 5. Error Handling ---
+    logger.error({ err }, '[social] Failed to post to Facebook Page');
     throw err;
   }
 }
 
 // ============================================================================
-// --- FACEBOOK & INSTAGRAM GRAPH API ---
+// --- HELPERS ---
 // ============================================================================
-
 // --- Graph API Helper Functions ---
 
 /**
@@ -249,68 +338,40 @@ async function checkAndRefreshFbLongToken(daysThreshold = 7, isProduction) {
   logger.info({ daysRemaining: newDaysLeft.toFixed(1) }, '[auth] FB long token refreshed');
 }
 
-
-// --- Posting Functions ---
-
 /**
- * @summary Creates and publishes an Instagram photo post.
- * @description The Instagram Graph API requires a two-step process:
- * 1. Create a "media container" by providing the public URL of the image.
- * 2. Publish the container using the `creation_id` from the first step.
- * @param {string} imageUrl - The public, direct URL of the image to post.
- * @param {string} caption - The caption text for the Instagram post.
- * @returns {Promise<string>} The ID of the published Instagram media item.
+ * @summary Formats and truncates text to fit within a platform's character limit.
+ * @param {string} fullText - The original, untruncated story text.
+ * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} hashtags - The string of hashtags to append.
+ * @param {number} maxLength - The maximum character limit for the platform (e.g., 280 for X).
+ * @returns {string} The final, formatted text for the post.
  */
-async function postToInstagram(imageUrl, caption) {
-  await checkAndRefreshFbLongToken(7);
-  const accessToken = FB_LONG_TOKEN_RUNTIME;
-  const igUserId = process.env.IG_USER_ID;
-  if (!accessToken || !igUserId) throw new Error('IG posting is not configured in .env');
+function formatPostText(fullText, shareableUrl, hashtags, maxLength) {
+  const readMoreBoilerplate = `...\n\nRead more at:`;
 
-  const finalCaption = `${caption}\n\n${constants.SOCIAL_HASHTAGS || ''}`;
+  // Calculate the length of all non-story components
+  const boilerplateLength = readMoreBoilerplate.length;
+  const hashtagsLength = hashtags.length;
+  const urlLength = shareableUrl.length;
 
-  // Step 1: Create the media container.
-  const createResponse = await graphPost(
-    `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${igUserId}/media`,
-    { image_url: imageUrl, caption: finalCaption, access_token: accessToken }
-  );
-  const creationId = createResponse?.id;
-  if (!creationId) throw new Error('IG API: No creation_id was returned.');
+  // Account for the newlines that join the parts
+  const separatorsLength = 4;
 
-  // Step 2: Publish the container to the user's feed.
-  const publishResponse = await graphPost(
-    `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${igUserId}/media_publish`,
-    { creation_id: creationId, access_token: accessToken }
-  );
-  const mediaId = publishResponse?.id;
-  if (!mediaId) throw new Error('IG API: Media publish call returned no id.');
-  logger.info({ mediaId }, '[social] Successfully posted to Instagram');
-  return mediaId;
-}
+  const overhead = boilerplateLength + urlLength + hashtagsLength + separatorsLength;
+  const availableTextLength = maxLength - overhead;
 
-/**
- * @summary Posts a photo to a Facebook Page.
- * @description This function posts a photo with a message to the configured Facebook Page.
- * It uses a long-lived Page Access Token for authentication.
- * @param {string} imageUrl - The public URL of the image.
- * @param {string} message - The text content for the Facebook post.
- * @returns {Promise<string>} The ID of the created Facebook post.
- */
-async function postToFacebookPage(imageUrl, message) {
-  const pageId = process.env.FB_PAGE_ID;
-  const pageToken = process.env.FB_PAGE_TOKEN;
-  if (!pageId || !pageToken) throw new Error('Facebook Page posting is not configured in .env');
+  let storyText;
+  if (fullText.length > availableTextLength) {
+    // Truncate and find the last space to avoid cutting a word in half
+    const truncated = fullText.substring(0, availableTextLength);
+    const lastSpace = truncated.lastIndexOf(' ');
+    storyText = (lastSpace > 0) ? truncated.substring(0, lastSpace) : truncated;
+  } else {
+    storyText = fullText;
+  }
 
-  const finalMessage = `${message}\n\n${constants.SOCIAL_HASHTAGS || ''}`;
-
-  const response = await graphPost(
-    `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${pageId}/photos`,
-    { url: imageUrl, message: finalMessage, access_token: pageToken }
-  );
-  const postId = response?.post_id || response?.id;
-  if (!postId) throw new Error('FB Page API: Photo post returned no id.');
-  logger.info({ postId }, '[social] Successfully posted to Facebook Page');
-  return postId;
+  // Assemble the final text
+  return `${storyText}${readMoreBoilerplate}\n${shareableUrl}\n\n${hashtags}`;
 }
 
 // ============================================================================
@@ -318,24 +379,32 @@ async function postToFacebookPage(imageUrl, message) {
 // ============================================================================
 
 /**
- * @summary Posts the same content to all configured social media platforms.
- * @description This function acts as a single entry point for cross-posting.
- * It invokes the individual posting functions for each platform in parallel.
- * It uses `Promise.allSettled` to ensure that a failure on one platform does
- * not prevent the others from attempting to post.
- * @param {string} text - The text content to be used as the tweet/caption/message.
- * @param {string} imageUrl - The public URL of the image to be posted.
- * @returns {Promise<void>} Resolves when all posting attempts are complete.
+ * @summary Posts content to all configured social media platforms. Skips all posts if no image is provided.
+ * @param {string} fullText - The untruncated story text.
+ * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string|null} imageUrl - The public URL of the image to post. If null, all posting is skipped.
+ * @returns {Promise<void>}
  */
-async function postEverywhere(text, imageUrl) {
+async function postEverywhere(fullText, shareableUrl, imageUrl) {
+  // --- Pre-flight Check ---
+  // If no image URL is provided, skip all social media posts as per the requirement.
+  if (!imageUrl) {
+    logger.info('[social] No image URL provided. Skipping all social media posts.');
+    return;
+  }
+
+  // --- Orchestrate Posts ---
+  // If an image URL exists, proceed with posting to all platforms in parallel.
   const jobs = [
-    postToInstagram(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Instagram post failed')),
-    postToFacebookPage(imageUrl, text).catch(e => logger.error({ err: e }, '[social] Facebook Page post failed')),
-    postToX(text, imageUrl).catch(e => logger.error({ err: e }, '[social] X post failed')),
+    postToInstagram(fullText, shareableUrl, imageUrl).catch(e => logger.error({ err: e }, '[social] Instagram post failed')),
+    postToFacebookPage(fullText, shareableUrl, imageUrl).catch(e => logger.error({ err: e }, '[social] Facebook Page post failed')),
+    postToX(fullText, shareableUrl, imageUrl).catch(e => logger.error({ err: e }, '[social] X post failed')),
   ];
+
   await Promise.allSettled(jobs);
   logger.info('[social] Cross-posting attempts finished.');
 }
+
 
 module.exports = {
   initSocial,

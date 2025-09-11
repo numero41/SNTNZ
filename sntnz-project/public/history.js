@@ -33,31 +33,25 @@ import * as ui from './history-ui.js';
       const CFG = await configResponse.json();
       const cronSchedule = CFG.HISTORY_CHUNK_SCHEDULE_CRON;
 
-      // 2. Fetch all available dates
+      // 2. Fetch all available dates for pagination
       const allDates = await (await fetch('/api/history/dates')).json();
       if (!allDates || allDates.length === 0) {
+        // Keep this check for the case where there is no history at all.
         throw new Error('No history is available yet.');
       }
 
       // 3. Determine the target date
       const urlParams = new URLSearchParams(window.location.search);
-      const requestedDate = urlParams.get('date');
-      const getTodayDateString = () => {
-        const d = new Date();
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      };
-      const todayDate = getTodayDateString();
-      let targetDate;
+      let targetDate = urlParams.get('date');
 
-      if (requestedDate && allDates.includes(requestedDate)) {
-        targetDate = requestedDate;
-      } else if (allDates.includes(todayDate)) {
-        targetDate = todayDate;
-      } else {
-        targetDate = allDates[0]; // Fallback to the most recent date
+      // If no date is in the URL, default to the current UTC date.
+      // This is the key change to ensure we request the correct "today".
+      if (!targetDate) {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        targetDate = `${year}-${month}-${day}`;
       }
 
       // 4. Fetch the history data for the target date

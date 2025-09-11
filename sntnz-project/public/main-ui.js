@@ -844,7 +844,7 @@ async function loadMoreHistory() {
 
             // Handle newlines by prepending a <br> tag before the word.
             if (styles.newline) {
-                container.prepend(document.createElement('br'));
+              container.prepend(document.createElement('br'));
             }
 
             // Set the text content and apply styles using our safe 'styles' object.
@@ -857,6 +857,11 @@ async function loadMoreHistory() {
             // Using prepend() correctly builds the content in reverse order at the top.
             container.prepend(document.createTextNode(' '));
             container.prepend(wordSpan);
+
+            // Add an extra newline if the word is also a chapter title
+            if (wordData.isTitle) {
+                container.prepend(document.createElement('br'));
+            }
         });
 
         // Next, if this chunk has an image, create a timeline entry for it.
