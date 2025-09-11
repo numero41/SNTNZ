@@ -101,6 +101,7 @@ let botMustWriteTitle = false;      // Signals that the bot must write a title f
 let botMustStartChapter = false;    // Signals that the bot must start a new chapter.
 let botMustContinueChapter = false; // Signals that the bot must start a new chapter.
 let botIsRunning = false;           // A lock to prevent the bot from running multiple times at once.
+let botIsConcluding = false;        // A lock to prevent the bot from running multiple times when concluding.
 let submissionIsLocked = false;     // Prevents users from writing during the sealing process until the bot has finished generating a title
 let mustSeal = false;
 const TARGET_CHUNK_WORD_COUNT = Math.floor(((constants.CHUNK_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
@@ -435,8 +436,8 @@ async function endRoundAndElectWinner() {
       logger.info('[server] Title sequence complete. Releasing user submission lock.');
     }
 
-    // 8. If the winner is not the bot, clear the bot's queue so it doesn't keep a stale plan.
-    if (winner.username !== constants.BOT_NAME) {
+    // 8. If the winner is not the bot AND we are NOT in conclusion mode, clear the bot's queue.
+    if (winner.username !== constants.BOT_NAME && !botIsConcluding) {
       logger.info({}, '[bot] A user won the round. Clearing bot queue and allowing a fresh turn.');
       botQueue = [];
       botMustStartChapter = false;
@@ -463,28 +464,19 @@ async function endRoundAndElectWinner() {
  */
 async function sealNewChunk() {
   let claimedWordsCount = 0;
+  submissionIsLocked = true;
+  let sealSucceeded = false;
+  let wordsToChunk = [];
+  logger.info('[history] Sealing new chunk: User submissions are now locked.');
 
   try {
-    // ------------------------------------------------------------------------
-    // LOCK DURING SEAL
-    // Prevent user submissions while we seal and prepare the next chapter title.
-    // ------------------------------------------------------------------------
-    submissionIsLocked = true;
-    botMustWriteTitle = true;
-    botMustStartChapter = false;
-    botMustContinueChapter = false;
-    botQueue = [];
-    currentTitle = null;
-    currentWritingStyle = null;
-
-    logger.info('[history] Sealing new chunk: User submissions are now locked.');
     io.emit('imageGenerationStarted');
 
     // ------------------------------------------------------------------------
     // PHASE 2: FETCH PENDING WORDS (ordered)
     // Grab all words that haven’t yet been sealed (chunkId: null).
     // ------------------------------------------------------------------------
-    let wordsToChunk = await wordsCollection
+    wordsToChunk = await wordsCollection
       .find({ chunkId: null })
       .sort({ ts: 1 })
       .toArray();
@@ -492,6 +484,8 @@ async function sealNewChunk() {
     claimedWordsCount = wordsToChunk.length;
     if (claimedWordsCount === 0) {
       logger.info('[history] No words to seal, skipping.');
+      sealSucceeded = true;
+      submissionIsLocked = false;
       return;
     }
 
@@ -553,11 +547,22 @@ async function sealNewChunk() {
     logger.info({ chunkHash: hash.substring(0, 12) }, '[history] Successfully sealed chunk');
 
     // ------------------------------------------------------------------------
-    // PHASE 6: TRIGGER BOT FOR NEXT CHAPTER
+    // PHASE 6: SET GLOBAL VARS
+    // ------------------------------------------------------------------------
+    botIsConcluding = false;
+    botMustWriteTitle = true;
+    botMustStartChapter = false;
+    botMustContinueChapter = false;
+    botQueue = [];
+    currentTitle = null;
+    currentWritingStyle = null;
+
+    // ------------------------------------------------------------------------
+    // PHASE 7: TRIGGER BOT FOR NEXT CHAPTER
     // ------------------------------------------------------------------------
     logger.info('[history] Triggering bot for new chapter title.');
     await triggerBot();
-
+    sealSucceeded = true;
   } catch (err) {
     // ------------------------------------------------------------------------
     // ERROR HANDLING: ROLLBACK CLAIMS
@@ -575,7 +580,12 @@ async function sealNewChunk() {
       );
       logger.warn(`[history] Rolled back ${claimedWordsCount} words from processing state.`);
     }
-
+  } finally {
+    // If the seal did NOT succeed, we release the lock so users can continue writing.
+    if (!sealSucceeded) {
+      submissionIsLocked = false;
+      logger.warn('[history] Seal process failed. Releasing submission lock.');
+    }
   }
 }
 
@@ -665,23 +675,36 @@ setInterval(() => {
   const remainingMs = nextTickTimestamp - now;
 
   // --- Round Ending Logic ---
-  // If the round is over, end it and start the next one.
   if (remainingMs <= 0) {
     endRoundAndElectWinner();
     return; // Stop this tick to avoid running bot logic immediately.
   }
 
-  // --- Bot Trigger Logic (Mid-Round) ---
+  // --- Bot Trigger Logic ---
+
+  // 1. Check if we need to enter "Conclusion Mode"
+  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
+  const shouldStartConcluding = minutesRemaining >5 && minutesRemaining <= 15 && botMustContinueChapter && !botIsConcluding;
+
+  if (shouldStartConcluding) {
+    botIsConcluding = true; // Lock in conclusion mode.
+    logger.info('[bot] Seal is imminent. Engaging conclusion mode to finish the chapter.');
+    triggerBot(); // Trigger once to generate the conclusion and queue it up.
+    return; // Exit this tick to let the bot's plan be set before the next check.
+  }
+
+  // 2. Determine if the bot should be triggered on this tick
   const roundDurationMs = constants.ROUND_DURATION_SECONDS * 1000;
   const timeElapsedInRound = roundDurationMs - remainingMs;
   const isPastQuarterWay = timeElapsedInRound >= (roundDurationMs / 4);
   const noUsersHaveSubmitted = liveWords.size === 0;
+  const isIdleRound = isPastQuarterWay && noUsersHaveSubmitted;
+  const shouldSubmit = (isIdleRound && !botIsConcluding) || (botIsConcluding && botMustContinueChapter);
 
-  // The bot should ONLY be triggered mid-round to continue a story.
-  const shouldContinueStory = botMustContinueChapter && isPastQuarterWay && noUsersHaveSubmitted;
-
-  if (shouldContinueStory) {
-    // We only need to trigger the bot here; it already knows what to do.
+  // Trigger the bot if:
+  // - It's an idle round AND we are NOT in conclusion mode.
+  // - OR, we ARE in conclusion mode (this ensures the bot keeps submitting from its queue).
+  if (shouldSubmit) {
     triggerBot();
   }
 }, 500);
