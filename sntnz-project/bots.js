@@ -132,14 +132,14 @@ function selectWritingStyle() {
 
 /**
  * Generates a unique chapter title.
- * @param {number} totalChunkCount - The total number of previously sealed chunks, used for chapter numbering.
+ * @param {number} totalChapterCount - The total number of previously sealed chapters, used for chapter numbering.
  * @param {string[]} [recentTitles=[]] - An array of recent titles to avoid duplication.
  * @param {object} currentWritingStyle - The writing style object to guide the AI.
  * @returns {Promise<object[]>} A promise that resolves to a queue containing the formatted title object.
  */
-async function generateNewTitle(totalChunkCount, recentTitles = [], currentWritingStyle) {
+async function generateNewTitle(totalChapterCount, recentTitles = [], currentWritingStyle) {
   logger.info('[bot] Generating a title...');
-  const chapterNumber = totalChunkCount + 1;
+  const chapterNumber = totalChapterCount + 1;
   let title = 'A New Beginning'; // Default title in case of failure
   let newQueue = [];
 
@@ -242,7 +242,7 @@ async function generateNewChapter(targetWordCount, currentTitle, currentWritingS
         });
     }
 
-    logger.info({ wordCount: newQueue.length }, '[bot] New chapter generated and queued');
+    logger.info({ targetWordCount: targetWordCount, wordCount: newQueue.length, story: story }, '[bot] New chapter generated and queued');
     return newQueue; // Return immediately on success.
 
   } catch (err) {
@@ -253,19 +253,19 @@ async function generateNewChapter(targetWordCount, currentTitle, currentWritingS
 
 /**
  * Generates a continuation for a story started by users.
- * @param {object[]} currentChunkWords - An array of the word objects already in the current chunk.
+ * @param {object[]} currentChapterWords - An array of the word objects already in the current chapter.
  * @param {number} targetWordCount - The approximate number of words the bot should add.
  * @param {object} currentWritingStyle - The writing style object to guide the AI.
  * @returns {Promise<object[]>} A promise that resolves to a queue of new word objects.
  */
-async function continueChapter(currentChunkWords, targetWordCount, currentWritingStyle) {
+async function continueChapter(currentChapterWords, targetWordCount, currentWritingStyle) {
     logger.info('[bot] Continuing user-initiated story...');
     let newQueue = [];
 
     try {
         const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
         const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
-        const wordsSoFar = currentChunkWords.map(w => w.word).join(' ');
+        const wordsSoFar = currentChapterWords.map(w => w.word).join(' ');
 
         // --- 1. Select AI model and generate the continuation text ---
         const useProModel = targetWordCount > 100;
@@ -299,7 +299,7 @@ async function continueChapter(currentChunkWords, targetWordCount, currentWritin
             });
         }
 
-        logger.info({ wordCount: newQueue.length }, '[bot] Story continuation generated and queued');
+        logger.info({ targetWordCount: targetWordCount, wordCount: newQueue.length, continuation: continuation }, '[bot] Story continuation generated and queued');
         return newQueue; // Return immediately on success.
 
     } catch (err) {
@@ -311,7 +311,7 @@ async function continueChapter(currentChunkWords, targetWordCount, currentWritin
 /**
  * @summary Orchestrates the bot's turn to generate and submit text.
  * @description This is the main function for the text bot. It manages the bot's queue
- * and decides when to generate new content based on the current state of the story chunk.
+ * and decides when to generate new content based on the current state of the story chapter.
  * @param {object} state - The complete current state of the game from server.js.
  * @returns {Promise<object>} An object containing the updated bot state to be synchronized with the server.
  */
@@ -320,8 +320,9 @@ async function runBotSubmission(state) {
   // --- 1. SETUP & STATE DECONSTRUCTION ---
   // ==========================================================================
   // Destructure all required variables from the main state object passed by the server.
-  const { liveWords, getCompositeKey, broadcastLiveFeed, currentChunkWords, totalChunkCount, targetWordCount, recentTitles } = state;
+  const { liveWords, getCompositeKey, broadcastLiveFeed, currentChapterWords, totalChapterCount, targetWordCount, recentTitles } = state;
   let { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle } = state;
+  let submissionMade = false;
 
   // ==========================================================================
   // --- 2. HANDLE QUEUED SUBMISSIONS ---
@@ -341,19 +342,20 @@ async function runBotSubmission(state) {
         ts: Date.now(),
         votes: new Map([[constants.BOT_ID, 1]]) // The bot always upvotes its own submissions.
       });
+      submissionMade = true;
     }
     broadcastLiveFeed();
 
     // Return the updated state to the server and stop further execution for this turn.
-    return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
+    return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle, submissionMade };
   }
 
   // ==========================================================================
   // --- 3. CONTENT GENERATION LOGIC ---
   // ==========================================================================
   // If the queue is empty and work is not done, the bot must decide what to write.
-  const isNewChunk = currentChunkWords.length === 0;
-  const hasTitleOnly = currentChunkWords.length === 1;
+  const isNewChapter = currentChapterWords.length === 0;
+  const hasTitleOnly = currentChapterWords.length === 1;
   let newQueue = [];
 
   // If a writing style hasn't been chosen for this chapter yet, select one now.
@@ -361,10 +363,10 @@ async function runBotSubmission(state) {
     currentWritingStyle = selectWritingStyle();
   }
 
-  // A) WRITE A TITLE: If the server signals a new chapter is needed or the chunk is empty.
-  if (botMustWriteTitle || isNewChunk) {
+  // A) WRITE A TITLE: If the server signals a new chapter is needed or the chapter is empty.
+  if (botMustWriteTitle || isNewChapter) {
     logger.info('[bot] Server signaled a new title must be written.');
-    newQueue = await generateNewTitle(totalChunkCount, recentTitles, currentWritingStyle);
+    newQueue = await generateNewTitle(totalChapterCount, recentTitles, currentWritingStyle);
     if (newQueue.length > 0) {
       currentTitle = newQueue[0].word;
       botMustWriteTitle = false;
@@ -379,20 +381,20 @@ async function runBotSubmission(state) {
     if (newQueue.length > 0) {
       botMustWriteTitle = false;
       botMustStartChapter = false;
-      botMustContinueChapter = true;
+      botMustContinueChapter = false;
     }
   }
-  // B) CONTINUE AN EXISTING STORY: If users have started writing but the chunk isn't full.
+  // B) CONTINUE AN EXISTING STORY: If users have started writing but the chapter isn't full.
   else if (botMustContinueChapter && targetWordCount > 0) {
     logger.info('[bot] Server signaled the chapter should be updated from new content.');
-    newQueue = await continueChapter(currentChunkWords, targetWordCount, currentWritingStyle);
+    newQueue = await continueChapter(currentChapterWords, targetWordCount, currentWritingStyle);
     if (newQueue.length > 0) {
       botMustWriteTitle = false;
       botMustStartChapter = false;
-      botMustContinueChapter = true;
+      botMustContinueChapter = false;
     }
   } else {
-    logger.info('[bot] Chunk is complete. Bot will not add more words.');
+    logger.info('[bot] Chapter is complete. Bot will not add more words.');
   }
 
   // ==========================================================================
@@ -403,7 +405,7 @@ async function runBotSubmission(state) {
       botQueue = newQueue;
   } else {
       // If generation failed or wasn't needed, exit and return the current state.
-      return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
+      return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle, submissionMade };
   }
 
   // Immediately submit the first word from the newly populated queue.
@@ -419,6 +421,7 @@ async function runBotSubmission(state) {
             ts: Date.now(),
             votes: new Map([[constants.BOT_ID, 1]])
         });
+      submissionMade = true;
     }
     broadcastLiveFeed();
   }
@@ -427,7 +430,7 @@ async function runBotSubmission(state) {
   // --- 5. RETURN FINAL UPDATED STATE ---
   // ==========================================================================
   // Return all state variables, which will be used to update the main server state.
-  return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle };
+  return { botQueue, botMustWriteTitle, botMustStartChapter, botMustContinueChapter, currentTitle, currentWritingStyle, submissionMade };
 }
 
 // ============================================================================
@@ -438,17 +441,17 @@ async function runBotSubmission(state) {
  * @summary Generates an image with Imagen and uploads it to Google Cloud Storage.
  * @description This is a multi-step process:
  * 1. A random artistic style is selected, avoiding recently used ones.
- * 2. The input text (a chunk of the story) is summarized by Gemini to create a
+ * 2. The input text (a chapter of the story) is summarized by Gemini to create a
  * more effective and concise visual prompt.
  * 3. A detailed final prompt is constructed, combining the summary, the chosen
  * style, and hard constraints (like "no text" or "no logos").
  * 4. The Imagen API is called to generate the image from the prompt.
  * 5. The resulting image data is decoded and uploaded to a public GCS bucket.
- * @param {string} text - The core text content (story chunk) to be depicted.
+ * @param {string} text - The core text content (story chapter) to be depicted.
  * @param {boolean} isProduction - Flag to determine which GCS folder to use.
  * @returns {Promise<string|null>} The public URL of the uploaded image, or null on failure.
  */
-async function generateAndUploadImage(text, isProduction) {
+async function generateAndUploadImage(text, chapterTitle, isProduction) {
   try {
     logger.info('[image] Starting image generation process...');
 
@@ -540,10 +543,10 @@ async function generateAndUploadImage(text, isProduction) {
     // Create a text watermark as an SVG image in a buffer.
     // This gives you full control over font, size, color, and opacity.
       const watermarkSvg = `
-        <svg width="300" height="100">
-          <text x="95%" y="85%" text-anchor="end"
+        <svg width="1000" height="50">
+          <text x="95%" y="85%" text-anchor="middle"
           font-family="IBM Plex Mono, monospace" font-size="20" font-weight="bold" fill="rgba(255, 153, 51, 0.71)">
-          sntnz.com
+          ${chapterTitle} sntnz.com
           </text>
         </svg>
       `;
@@ -561,7 +564,7 @@ async function generateAndUploadImage(text, isProduction) {
 
     // --- Step 6: Upload Image to Google Cloud Storage ---
     const folder = isProduction ? 'images' : 'dev-images';
-    const fileName = `${folder}/sntnz-chunk-${Date.now()}.png`;
+    const fileName = `${folder}/sntnz-chapter-${Date.now()}.png`;
     const file = bucket.file(fileName);
 
     await file.save(watermarkedImageBuffer, {

@@ -428,8 +428,8 @@ body {
   user-select: none;
 }
 
-/* History Page - Chunk Image */
-.chunk-image {
+/* History Page - Chapter Image */
+.chapter-image {
   width: 100%;
   height: auto;
   display: block;
@@ -455,7 +455,7 @@ body {
   max-height: 85vh;
   padding: 0;
   box-shadow: none;
-  overflow: hidden;
+  overflow: auto;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -602,7 +602,7 @@ body {
 
 .live-feed-item {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   margin-bottom: 8px;
 }
 
@@ -761,8 +761,8 @@ body {
 /* Close (×) button */
 .modal-close {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 10px;
+  right: 10px;
   background-color: var(--color-black-transp);
   color: var(--color-white);
   font-size: 1.2rem;
@@ -1068,11 +1068,11 @@ body {
 }
 
 /* ============================================================================
-   --- HISTORY PAGE CHUNKS ---
+   --- HISTORY PAGE CHAPTERS ---
 ============================================================================ */
 
-/* Chunk wrapper */
-.history-chunk {
+/* Chapter wrapper */
+.history-chapter {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1080,12 +1080,12 @@ body {
   padding-bottom: 1.5rem;
   margin-bottom: 1.5rem;
 }
-.history-chunk:last-child {
+.history-chapter:last-child {
   border-bottom: none;
 }
 
-/* Chunk metadata row */
-.chunk-meta {
+/* Chapter metadata row */
+.chapter-meta {
   display: flex;
   width: 100%;
   justify-content: space-between;
@@ -1095,15 +1095,15 @@ body {
   color: var(--color-grey2);
 }
 
-/* Chunk info (left side) */
-.chunk-info {
+/* Chapter info (left side) */
+.chapter-info {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
 
 /* Hash badge (copy target) */
-.chunk-hash {
+.chapter-hash {
   font-family: var(--font-main);
   background-color: color-mix(in srgb, var(--color-white) 94%, var(--color-black) 6%); /* ≈ #f0f0f0 */
   padding: 0.1rem 0.4rem;
@@ -1111,12 +1111,12 @@ body {
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
-.chunk-hash:hover {
+.chapter-hash:hover {
   background-color: color-mix(in srgb, var(--color-white) 88%, var(--color-black) 12%); /* ≈ #e0e0e0 */
 }
 
-/* Share button on chunks */
-.chunk-actions .share-btn {
+/* Share button on chapters */
+.chapter-actions .share-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -1130,7 +1130,7 @@ body {
   font-size: 0.9rem;
   color: var(--color-grey2);
 }
-.chunk-actions .share-btn:hover {
+.chapter-actions .share-btn:hover {
   border-color: var(--color-black);
   color: var(--color-black);
 }

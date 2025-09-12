@@ -26,7 +26,7 @@ const express = require('express');         // The web framework for routing and
 const http = require('http');               // The raw Node.js HTTP server that Express and Socket.IO use.
 const { Server } = require('socket.io');    // The real-time WebSocket communication library.
 const crypto = require('crypto');           // Node.js module for cryptographic functions like hashing.
-const cron = require('node-cron');          // A task scheduler for running jobs at specific times (e.g., sealing chunks).
+const cron = require('node-cron');          // A task scheduler for running jobs at specific times (e.g., sealing chapters).
 
 // --- Security & Utility Modules ---
 const helmet = require('helmet');           // Provides important security headers to protect against common vulnerabilities.
@@ -96,14 +96,15 @@ let nextTickTimestamp = computeNextRoundEndTime(); // The timestamp for when the
 let botContext = [];                // The context buffer for the Gemini bot.
 let botQueue = [];                  // The word queue for the Gemini bot's current sentence.
 let shuttingDown = false;           // A flag to prevent multiple shutdown procedures from running.
-let botMustWriteTitle = false;      // Signals that the bot must write a title for a new chunk.
+let botMustWriteTitle = false;      // Signals that the bot must write a title for a new chapter.
 let botMustStartChapter = false;    // Signals that the bot must start a new chapter.
 let botMustContinueChapter = false; // Signals that the bot must start a new chapter.
 let botIsRunning = false;           // A lock to prevent the bot from running multiple times at once.
+let botHasSubmitted = false;        // A lock to prevent the bot from submitting multiple words in the same round.
 let botIsConcluding = false;        // A lock to prevent the bot from running multiple times when concluding.
 let submissionIsLocked = false;     // Prevents users from writing during the sealing process until the bot has finished generating a title
 let mustSeal = false;
-const TARGET_CHUNK_WORD_COUNT = Math.floor(((constants.CHUNK_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
+const TARGET_CHAPTER_WORD_COUNT = Math.floor(((constants.CHAPTER_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
 
 
 // ============================================================================
@@ -120,7 +121,7 @@ const client = new MongoClient(DATABASE_URL, {
 });
 
 // These variables will be assigned after the database connection is established.
-let usersCollection, wordsCollection, chunksCollection, unsealedChunkCollection;
+let usersCollection, wordsCollection, chaptersCollection, unsealedChapterCollection;
 
 /**
  * Establishes a connection to the MongoDB Atlas cluster and initializes
@@ -132,8 +133,8 @@ async function connectToDatabase() {
     const db = client.db();
     usersCollection = db.collection('users');
     wordsCollection = db.collection('words');
-    chunksCollection = db.collection('chunks');
-    unsealedChunkCollection = db.collection('unsealedChunks');
+    chaptersCollection = db.collection('chapters');
+    unsealedChapterCollection = db.collection('unsealedChapters');
     logger.info("[db] Successfully connected to MongoDB Atlas!");
   } catch (err) {
     logger.error({ err }, "[db] Failed to connect to MongoDB");
@@ -220,9 +221,9 @@ function getLiveFeedState(requestingUserId) {
  */
 function broadcastLiveFeed() {
     for (const [, socket] of io.of("/").sockets) {
-        const user = socket.request.user;
-        const userId = user ? user.googleId : socket.id;
-        socket.emit('liveFeedUpdated', getLiveFeedState(userId));
+      const user = socket.request.user;
+      const userId = user ? user.googleId : socket.id;
+      socket.emit('liveFeedUpdated', getLiveFeedState(userId));
     }
 }
 
@@ -283,16 +284,16 @@ function calculateMinutesUntilNextSeal(cronSchedule) {
 /**
  * Calculates how many words the bot should write to complete a chapter
  * precisely at the next scheduled seal time.
- * @param {Array} currentChunkWords - An array of word objects already in the chunk.
+ * @param {Array} currentChapterWords - An array of word objects already in the chapter.
  * @returns {number} The number of words the bot should generate.
  */
-function calculateWordsUntilNextSeal(currentChunkWords = []) {
+function calculateWordsUntilNextSeal(currentChapterWords = []) {
   // First, calculate the total target size of the chapter based on time.
-  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
+  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHAPTER_SCHEDULE_CRON);
   const totalTargetSize = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.8);
 
   // Then, subtract the words already written to find the remainder.
-  const wordsWritten = currentChunkWords.length;
+  const wordsWritten = currentChapterWords.length;
   const targetWordCount = totalTargetSize - wordsWritten;
 
   // Ensure the bot always writes at least a couple of words.
@@ -305,38 +306,26 @@ function calculateWordsUntilNextSeal(currentChunkWords = []) {
 
 /**
  * Decides if the bot should act for the current round and triggers its logic.
- * @description This function is the sole entry point for the bot's turn. It is
- * called once at the start of each new round from `endRoundAndElectWinner`.
- * It evaluates the game state to determine if the bot should process its
- * existing queue or generate new content, then calls `runBotSubmission`.
- * @returns {Promise<void>} A promise that completes when the bot's turn is finished.
+ * This version uses a proper async/await structure to prevent race conditions.
  */
 async function triggerBot() {
-  // --- 1. DEFINE BOT'S POSSIBLE ACTIONS ---
-  // The bot has two primary reasons to act: to speak or to think.
-  // The bot should act if it's in the middle of a sentence.
-  const hasQueueToProcess = botQueue.length > 0;
+  const hasWorkToDo = botQueue.length > 0 || botMustWriteTitle || botMustStartChapter || botMustContinueChapter;
 
-  // The bot should think of new content if its work isn't done AND one of
-  // three conditions is met: it must write a title, it must start a chapter,
-  // or it's a normal round and no users have submitted.
-  const shouldAddContent = hasQueueToProcess || botMustWriteTitle || botMustStartChapter || botMustContinueChapter;
+  // Guard against concurrent execution.
+  if (!botIsRunning && hasWorkToDo) {
+    botIsRunning = true; // Engage the safety lock.
 
-  // --- 3. EXECUTE BOT LOGIC ---
-  // If the bot is not already running and has a reason to act, start its turn.
-  if (!botIsRunning && shouldAddContent) {
-    botIsRunning = true; // Engage the safety lock to prevent concurrent runs.
+    try {
+      // 1. Await all necessary data from the database.
+      const [currentChapterWords, totalChapterCount, recentChapters] = await Promise.all([
+        wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray(),
+        chaptersCollection.countDocuments(),
+        chaptersCollection.find({}, { projection: { title: 1 } }).sort({ ts: -1 }).limit(50).toArray(),
+      ]);
 
-    // Fetch all necessary data from the database before calling the bot.
-    Promise.all([
-      wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray(),
-      chunksCollection.countDocuments(),
-      chunksCollection.find({}, { projection: { title: 1 } }).sort({ ts: -1 }).limit(50).toArray(),
-    ])
-    .then(([currentChunkWords, totalChunkCount, recentChunks]) => {
-      // Assemble the complete state object to pass to the bot.
-      const recentTitles = recentChunks.map(chunk => chunk.title).filter(Boolean);
-      const targetWordCount = calculateWordsUntilNextSeal(currentChunkWords);
+      // 2. Assemble the complete state object to pass to the bot.
+      const recentTitles = recentChapters.map(chapter => chapter.title).filter(Boolean);
+      const targetWordCount = calculateWordsUntilNextSeal(currentChapterWords);
       const botState = {
         liveWords,
         botContext,
@@ -345,8 +334,8 @@ async function triggerBot() {
         getCompositeKey,
         currentTitle,
         currentWritingStyle,
-        currentChunkWords,
-        totalChunkCount,
+        currentChapterWords,
+        totalChapterCount,
         botMustWriteTitle,
         botMustStartChapter,
         botMustContinueChapter,
@@ -354,24 +343,28 @@ async function triggerBot() {
         targetWordCount,
       };
 
-      // Call the main bot logic with the prepared state.
-      return runBotSubmission(botState);
-    })
-    .then(result => {
-      // After the bot returns, synchronize the server's state with the result.
+      // 3. Await the bot's action and get the result.
+      const result = await runBotSubmission(botState);
+
+      // 4. Synchronize the server's state with the result.
       botQueue = result.botQueue;
       botMustWriteTitle = result.botMustWriteTitle;
       botMustStartChapter = result.botMustStartChapter;
       botMustContinueChapter = result.botMustContinueChapter;
       currentTitle = result.currentTitle;
       currentWritingStyle = result.currentWritingStyle;
-    })
-    .catch(err => {
+
+      // Set the submission flag only if the bot reports it was successful.
+      if (result.submissionMade) {
+          botHasSubmitted = true;
+      }
+
+    } catch (err) {
       logger.error({ err }, '[bot] Bot execution promise chain failed');
-    })
-    .finally(() => {
-      botIsRunning = false; // Always release the safety lock when done.
-    });
+    } finally {
+      // 5. Always release the lock when done.
+      botIsRunning = false;
+    }
   }
 }
 
@@ -384,6 +377,7 @@ async function endRoundAndElectWinner() {
   // 1. Immediately schedule the next round's end time.
   nextTickTimestamp = computeNextRoundEndTime();
   io.emit('nextTick', { nextTickTimestamp });
+  botHasSubmitted = false;
 
   // 2. Capture and clear the live submissions.
   const finalLiveFeed = getLiveFeedState();
@@ -413,7 +407,7 @@ async function endRoundAndElectWinner() {
     const winnerRow = {
       ts: Date.now(), word: winner.word, styles: winner.styles, isTitle: winner.isTitle || false,
       username: winner.username, pct: totalVotes > 0 ? (winner.count / totalVotes) * 100 : 0,
-      count: winner.count, total: totalVotes, chunkId: null
+      count: winner.count, total: totalVotes, chapterId: null
     };
 
     // 6. Save to database and update in-memory state.
@@ -427,10 +421,10 @@ async function endRoundAndElectWinner() {
       logger.error({ err }, "[db] Failed to save word to database");
     }
 
-    // 7. Unlock for users if the bot was writing a title
-    // The lock is released only if it was ON, the last word was a title,
-    // and a new winner exists that is NOT a title word.
-    if (submissionIsLocked && botMustWriteTitle && !winner.isTitle) {
+    // 7. Unlock for users if a title has just won the round.
+    // If the lock is active AND the winning word is a title, the title has been
+    // successfully added. We can now release the lock for the next round.
+    if (submissionIsLocked && winner.isTitle) {
       submissionIsLocked = false;
       logger.info('[server] Title sequence complete. Releasing user submission lock.');
     }
@@ -445,64 +439,80 @@ async function endRoundAndElectWinner() {
     logger.info({winner: winner.word}, '[server] A word has been chosen.');
   }
 
-  // After finishing the round, run sealing if scheduled
   // After processing the winner, check if a seal is needed.
   if (mustSeal) {
     mustSeal = false;
-    await sealNewChunk(); // This will in turn call triggerBot for the new title.
-  } else {
-    // If not sealing, trigger the bot for a normal new round.
+    await sealNewChapter(); // This will handle triggering the bot for the new title.
+    return; // Stop here to let the seal process dictate the next step.
+  }
+
+  // --- Bot Trigger Logic for a Round ---
+  // This is the "Thinking" trigger. It fires immediately if the bot's state
+  // requires it to generate new content.
+  const needsToGenerateNewContent = botMustContinueChapter || botMustStartChapter || botMustWriteTitle;
+  if (needsToGenerateNewContent) {
     await triggerBot();
   }
 }
 
 /**
- * @summary Archives un-chunked words into a new, permanent chunk document with a generated image.
+ * @summary Archives un-chaptered words into a new, permanent chapter document with a generated image.
  * @description This function runs on a schedule. It uses a two-phase process to atomically
  * claim unsealed words before processing them, preventing race conditions with the history API.
  */
-async function sealNewChunk() {
+async function sealNewChapter() {
   let claimedWordsCount = 0;
   submissionIsLocked = true;
   let sealSucceeded = false;
-  let wordsToChunk = [];
-  logger.info('[history] Sealing new chunk: User submissions are now locked.');
+  let wordsToChapter = [];
+  logger.info('[history] Sealing new chapter: User submissions are now locked.');
 
   try {
     io.emit('imageGenerationStarted');
 
     // ------------------------------------------------------------------------
     // PHASE 2: FETCH PENDING WORDS (ordered)
-    // Grab all words that haven’t yet been sealed (chunkId: null).
+    // Grab all words that haven’t yet been sealed (chapterId: null).
     // ------------------------------------------------------------------------
-    wordsToChunk = await wordsCollection
-      .find({ chunkId: null })
+    wordsToChapter = await wordsCollection
+      .find({ chapterId: null })
       .sort({ ts: 1 })
       .toArray();
 
-    claimedWordsCount = wordsToChunk.length;
+    claimedWordsCount = wordsToChapter.length;
     if (claimedWordsCount === 0) {
-      logger.info('[history] No words to seal, skipping.');
-      sealSucceeded = true;
-      submissionIsLocked = false;
+      logger.warn('[history] Scheduled seal triggered, but no words were written. Forcing new chapter.');
+      // Even if we skip the seal, we must reset the bot's state to start a new chapter.
+      botIsConcluding = false;
+      botMustWriteTitle = true;
+      botMustStartChapter = false;
+      botMustContinueChapter = false;
+      botQueue = [];
+      currentTitle = null;
+      currentWritingStyle = null;
+
+      // Trigger the bot immediately to generate the new title.
+      await triggerBot();
+
+      // The submission lock is handled by the bot flow now, so we just return.
       return;
     }
 
     // ------------------------------------------------------------------------
-    // PHASE 3: BUILD CHUNK METADATA (hash, text, title)
+    // PHASE 3: BUILD CHAPTER METADATA (hash, text, title)
     // ------------------------------------------------------------------------
-    const dataToHash = JSON.stringify(wordsToChunk);
+    const dataToHash = JSON.stringify(wordsToChapter);
     const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
 
-    const chunkText = wordsToChunk.reduce((acc, w) => {
+    const chapterText = wordsToChapter.reduce((acc, w) => {
       const sep = w.styles?.newline ? '\n' : (acc ? ' ' : '');
       return acc + sep + w.word;
     }, '').trim();
 
     // Extract title from the first word if flagged as title
     currentTitle = 'Untitled';
-    if (wordsToChunk[0].isTitle && wordsToChunk[0].word.startsWith('Chapter')) {
-      currentTitle = wordsToChunk[0].word;
+    if (wordsToChapter[0].isTitle && wordsToChapter[0].word.startsWith('Chapter')) {
+      currentTitle = wordsToChapter[0].word;
     }
 
     // ------------------------------------------------------------------------
@@ -510,40 +520,40 @@ async function sealNewChunk() {
     // ------------------------------------------------------------------------
     let imageUrl = null;
     if (isProduction) {
-      imageUrl = await generateAndUploadImage(chunkText, isProduction);
+      imageUrl = await generateAndUploadImage(chapterText, currentTitle, isProduction);
     }
 
-    const newChunk = {
-      ts: wordsToChunk[0].ts, // timestamp of first word
+    const newChapter = {
+      ts: wordsToChapter[0].ts, // timestamp of first word
       hash,
       title: currentTitle,
-      text: chunkText,
-      words: wordsToChunk,
+      text: chapterText,
+      words: wordsToChapter,
       imageUrl,
       style: currentWritingStyle ? currentWritingStyle.name : 'User-Initiated',
     };
 
     if (isProduction) {
-      const shareableUrl = `https://www.sntnz.com/chunk/${newChunk.hash}`;
-      await postEverywhere(newChunk.text, shareableUrl, newChunk.imageUrl);
+      const shareableUrl = `https://www.sntnz.com/chapter/${newChapter.hash}`;
+      await postEverywhere(newChapter.text, shareableUrl, newChapter.imageUrl);
     }
 
     // ------------------------------------------------------------------------
-    // PHASE 5: SAVE CHUNK & FINALIZE WORDS
+    // PHASE 5: SAVE CHAPTER & FINALIZE WORDS
     // ------------------------------------------------------------------------
-    const insertedChunk = await chunksCollection.insertOne(newChunk);
-    const newChunkId = insertedChunk.insertedId;
+    const insertedChapter = await chaptersCollection.insertOne(newChapter);
+    const newChapterId = insertedChapter.insertedId;
 
     await wordsCollection.updateMany(
-      { _id: { $in: wordsToChunk.map(w => w._id) } },
-      { $set: { chunkId: newChunkId } }
+      { _id: { $in: wordsToChapter.map(w => w._id) } },
+      { $set: { chapterId: newChapterId } }
     );
 
-    if (newChunk.imageUrl) {
-      io.emit('newImageSealed', { imageUrl: newChunk.imageUrl });
+    if (newChapter.imageUrl) {
+      io.emit('newImageSealed', { imageUrl: newChapter.imageUrl });
     }
 
-    logger.info({ chunkHash: hash.substring(0, 12) }, '[history] Successfully sealed chunk');
+    logger.info({ chapterHash: hash.substring(0, 12) }, '[history] Successfully sealed chapter');
 
     // ------------------------------------------------------------------------
     // PHASE 6: SET GLOBAL VARS
@@ -566,16 +576,16 @@ async function sealNewChunk() {
     // ------------------------------------------------------------------------
     // ERROR HANDLING: ROLLBACK CLAIMS
     // ------------------------------------------------------------------------
-    logger.error({ err }, '[history] Error sealing new chunk');
+    logger.error({ err }, '[history] Error sealing new chapter');
 
     if (claimedWordsCount > 0) {
       // This part of your error handling seems incorrect.
-      // It should revert the claimed words, not just any words with chunkId: null.
-      // A better implementation would be to use the IDs from `wordsToChunk`.
-      const wordIdsToRevert = wordsToChunk.map(w => w._id);
+      // It should revert the claimed words, not just any words with chapterId: null.
+      // A better implementation would be to use the IDs from `wordsToChapter`.
+      const wordIdsToRevert = wordsToChapter.map(w => w._id);
       await wordsCollection.updateMany(
         { _id: { $in: wordIdsToRevert } },
-        { $unset: { chunkId: "" } } // Use $unset for a cleaner rollback
+        { $unset: { chapterId: "" } } // Use $unset for a cleaner rollback
       );
       logger.warn(`[history] Rolled back ${claimedWordsCount} words from processing state.`);
     }
@@ -597,69 +607,51 @@ async function loadInitialTextFromHistory() {
   logger.info('[history] Loading initial text from database...');
 
   try {
-    // --- FIRST CHAPTER INIT IF DB IS EMPTY ---
-    // If, after all loading attempts, no chunks exist in the database,
-    // we will force the bot to create the very first one.
-    const chunkCount = await chunksCollection.countDocuments();
-    if (chunkCount === 0) {
-      logger.info('[history] Database is empty. Forcing bot to create the first chunk.');
+    let restoredWords = [];
+    // 1. Attempt to restore the live chapter from a backup.
+    const backup = await unsealedChapterCollection.findOneAndDelete({ _id: 'live_chapter_backup' });
 
-      // Set the bot's state to ensure it writes a new title.
-      botMustWriteTitle = true;
-      botMustStartChapter = false;
-      botMustContinueChapter = false;
-
-      // Immediately trigger the bot to begin the generation process.
-      await triggerBot();
+    if (backup && backup.words && backup.words.length > 0) {
+      logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
+      restoredWords = backup.words;
     }
-    // --- Otherwise, load unsealed words from last shutdown ---
-    else {
-      let restoredWords = [];
-      // 1. Attempt to restore the live chunk from a backup.
-      const backup = await unsealedChunkCollection.findOneAndDelete({ _id: 'live_chunk_backup' });
 
-      if (backup && backup.words && backup.words.length > 0) {
-        logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
-        restoredWords = backup.words;
-      }
+    // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
+    if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
+      const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
 
-      // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
-      if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
-        const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
+      // Determine the point in time to query before. If no backup, start from now.
+      const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
 
-        // Determine the point in time to query before. If no backup, start from now.
-        const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
+      logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
 
-        logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
+      // 3. Fetch the required number of older words from the main collection.
+      const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
+        .sort({ ts: -1 })
+        .limit(wordsNeeded)
+        .toArray();
 
-        // 3. Fetch the required number of older words from the main collection.
-        const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
-          .sort({ ts: -1 })
-          .limit(wordsNeeded)
-          .toArray();
+      // 4. Combine the older (padding) words with the live (restored) words.
+      currentText = paddingWords.reverse().concat(restoredWords);
 
-        // 4. Combine the older (padding) words with the live (restored) words.
-        currentText = paddingWords.reverse().concat(restoredWords);
+    } else {
+      // 5. If the backup was long enough, just take the most recent part of it.
+      currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
+    }
 
-      } else {
-        // 5. If the backup was long enough, just take the most recent part of it.
-        currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
-      }
+    // 6. Populate the bot's context with the fully-loaded text.
+    logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
+    currentText.forEach(w => {
+      botContext = pushBotContext(w.word, botContext);
+    });
 
-      // 6. Populate the bot's context with the fully-loaded text.
-      logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
-      currentText.forEach(w => {
-        botContext = pushBotContext(w.word, botContext);
-      });
-
-      //7. Update bot state
-      if (restoredWords.length === 1) {
-        botMustStartChapter = true;
-      } else if (restoredWords.length > 1) {
-        botMustContinueChapter = true;
-      } else if (restoredWords.length === 0) {
-        botMustWriteTitle = true;
-      }
+    //7. Update bot state
+    if (restoredWords.length === 1) {
+      botMustStartChapter = true;
+    } else if (restoredWords.length > 1) {
+      botMustContinueChapter = true;
+    } else if (restoredWords.length === 0) {
+      botMustWriteTitle = true;
     }
   } catch (error) {
     logger.error({ err: error }, '[history] Failed to load initial text');
@@ -670,40 +662,48 @@ async function loadInitialTextFromHistory() {
 // --- GAME LOOP ---
 // ============================================================================
 setInterval(() => {
-  const now = Date.now();
-  const remainingMs = nextTickTimestamp - now;
-
   // --- Round Ending Logic ---
-  if (remainingMs <= 0) {
+  // This is the interval's PRIMARY job. If the round is over, end it.
+  if (Date.now() >= nextTickTimestamp) {
     endRoundAndElectWinner();
-    return; // Stop this tick to avoid running bot logic immediately.
+    return; // Exit this tick immediately after ending the round.
   }
 
-  // --- Bot Trigger Logic ---
+  // --- Proactive Bot Trigger at half round ---
+  const roundMidpointTimestamp = nextTickTimestamp - (constants.ROUND_DURATION_SECONDS * 1000 / 2);
+  const isPastMidpoint = Date.now() >= roundMidpointTimestamp;
+  const botShouldSubmit =
+    isPastMidpoint &&
+    botQueue.length > 0 &&
+    !botHasSubmitted &&
+    !botIsRunning;
 
-  // 1. Check if we need to enter "Conclusion Mode"
-  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHUNK_SCHEDULE_CRON);
-  const shouldStartConcluding = minutesRemaining >5 && minutesRemaining <= 15 && botMustContinueChapter && !botIsConcluding;
-
-  if (shouldStartConcluding) {
-    botIsConcluding = true; // Lock in conclusion mode.
-    logger.info('[bot] Seal is imminent. Engaging conclusion mode to finish the chapter.');
-    triggerBot(); // Trigger once to generate the conclusion and queue it up.
-    return; // Exit this tick to let the bot's plan be set before the next check.
+  if (botShouldSubmit) {
+    logger.info('[bot] Midpoint reached. Attempting proactive submission.');
+    triggerBot();
   }
 
-  // 2. Determine if the bot should be triggered on this tick
-  const roundDurationMs = constants.ROUND_DURATION_SECONDS * 1000;
-  const timeElapsedInRound = roundDurationMs - remainingMs;
-  const isPastQuarterWay = timeElapsedInRound >= (roundDurationMs / 4);
-  const noUsersHaveSubmitted = liveWords.size === 0;
-  const isIdleRound = isPastQuarterWay && noUsersHaveSubmitted;
-  const shouldSubmit = (isIdleRound && !botIsConcluding) || (botIsConcluding && botMustContinueChapter);
+  // --- "Conclusion Mode" Check ---
+  // This is the interval's TERTIARY job. It runs on ticks where the round is not ending.
+  // It checks if it's time for the bot to PREPARE its concluding sentences.
 
-  // Trigger the bot if:
-  // - It's an idle round AND we are NOT in conclusion mode.
-  // - OR, we ARE in conclusion mode (this ensures the bot keeps submitting from its queue).
-  if (shouldSubmit) {
+  // Calculate the time threshold for conclusion mode (5% of total chapter duration).
+  const conclusionThresholdMinutes = Math.floor(constants.CHAPTER_DURATION_MINUTES * 0.05);
+  const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHAPTER_SCHEDULE_CRON);
+
+  const botShouldReviewConclusion =
+    minutesRemaining <= conclusionThresholdMinutes &&
+    minutesRemaining > 10 &&
+    botMustContinueChapter &&
+    !botIsConcluding;
+
+  if (botShouldReviewConclusion) {
+    botIsConcluding = true; // Lock in conclusion mode so this only runs once per chapter.
+    logger.info({ threshold: conclusionThresholdMinutes }, '[bot] Seal is imminent. Engaging conclusion mode to finish the chapter.');
+
+    // Trigger the bot ONCE to generate the full conclusion and put it in its queue.
+    // The bot will then submit those words one by one during its normal turn in endRoundAndElectWinner.
+    botQueue = [];
     triggerBot();
   }
 }, 500);
@@ -735,7 +735,6 @@ app.use(pinoHttp({
   },
 }));
 
-
 app.use(helmet({    // Security headers.
     hsts: false, crossOriginResourcePolicy: false,
     contentSecurityPolicy: { directives: {
@@ -751,7 +750,7 @@ app.use(express.urlencoded({ extended: false, limit: '2kb' })); // URL-encoded b
 
 // Rate limit public APIs to prevent abuse.
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
-app.use(['/config', '/api', '/history', '/chunk'], apiLimiter);
+app.use(['/config', '/api', '/history', '/chapter'], apiLimiter);
 
 // Session and Passport middleware must come before routes that use them.
 app.use(sessionMiddleware);
@@ -772,33 +771,33 @@ app.get('/config', (_req, res) => res.json(constants));
 // We pass it the users collection so it can interact with the database.
 app.use('/', createAuthRouter());
 
-// --- History & Chunk API Routes ---
+// --- History & Chapter API Routes ---
 // These routes allow the client to fetch historical data.
 /**
  * GET /api/share-text/:hash
  * -------------------------
  * Generates the canonical, truncated, and formatted text for a given
- * chunk, suitable for sharing on social media like X.
+ * chapter, suitable for sharing on social media like X.
  */
 app.get('/api/share-text/:hash', async (req, res) => {
   try {
     const { hash } = req.params;
     if (!hash) {
-      return res.status(400).json({ error: 'A chunk hash is required.' });
+      return res.status(400).json({ error: 'A chapter hash is required.' });
     }
 
-    // Find the chunk using the potentially short hash
-    const chunk = await chunksCollection.findOne({ hash: new RegExp(`^${hash}`) });
-    if (!chunk) {
-      return res.status(404).json({ error: 'Chunk not found.' });
+    // Find the chapter using the potentially short hash
+    const chapter = await chaptersCollection.findOne({ hash: new RegExp(`^${hash}`) });
+    if (!chapter) {
+      return res.status(404).json({ error: 'Chapter not found.' });
     }
 
     // Reuse the exact same logic as the social media posts
-    const shortHash = chunk.hash.substring(0, 12);
-    const shareableUrl = `https://www.sntnz.com/chunk/${shortHash}`;
+    const shortHash = chapter.hash.substring(0, 12);
+    const shareableUrl = `https://www.sntnz.com/chapter/${shortHash}`;
 
     const shareText = formatPostText(
-      chunk.text,
+      chapter.text,
       shareableUrl,
       constants.SOCIAL_X_HASHTAGS || '',
       constants.TWITTER_MAX_CHARS,
@@ -816,7 +815,7 @@ app.get('/api/share-text/:hash', async (req, res) => {
 /**
  * GET /api/history/before
  * -----------------------
- * Fetches a batch of whole, ordered chunks from before a given timestamp.
+ * Fetches a batch of whole, ordered chapters from before a given timestamp.
  * This is the new, robust method for infinite scroll.
  */
 app.get('/api/history/before', async (req, res) => {
@@ -828,15 +827,15 @@ app.get('/api/history/before', async (req, res) => {
       return res.status(400).json({ error: 'Invalid timestamp provided.' });
     }
 
-    const olderChunks = await chunksCollection.find({ ts: { $lt: oldestTimestamp } })
+    const olderChapters = await chaptersCollection.find({ ts: { $lt: oldestTimestamp } })
       .sort({ ts: -1, _id: -1 })
       .limit(limit)
       .toArray();
 
-    res.json(olderChunks);
+    res.json(olderChapters);
 
   } catch (error) {
-    console.error('[api] Error fetching older history chunks:', error);
+    console.error('[api] Error fetching older history chapters:', error);
     res.status(500).json({ error: 'Failed to retrieve history.' });
   }
 });
@@ -844,7 +843,7 @@ app.get('/api/history/before', async (req, res) => {
 /**
  * GET /api/history/latest
  * -----------------------
- * Always returns the chunks for the server's current UTC date, including the live chunk.
+ * Always returns the chapters for the server's current UTC date, including the live chapter.
  * Also returns the date string it used, so the client can update its state.
  */
 app.get('/api/history/latest', async (req, res) => {
@@ -853,19 +852,19 @@ app.get('/api/history/latest', async (req, res) => {
     const startOfDay = new Date(`${today}T00:00:00.000Z`);
     const endOfDay = new Date(`${today}T23:59:59.999Z`);
 
-    // Get sealed chunks for today
-    const sealedChunks = await chunksCollection.find({
+    // Get sealed chapters for today
+    const sealedChapters = await chaptersCollection.find({
       ts: { $gte: startOfDay.getTime(), $lte: endOfDay.getTime() },
     }).sort({ ts: 1 }).toArray();
 
-    // Get ALL unsealed words to form the live chunk
+    // Get ALL unsealed words to form the live chapter
     const unsealedWords = await wordsCollection.find({
-      chunkId: null,
+      chapterId: null,
     }).sort({ ts: 1 }).toArray();
 
-    const allChunks = [...sealedChunks];
+    const allChapters = [...sealedChapters];
     if (unsealedWords.length > 0) {
-      allChunks.push({
+      allChapters.push({
         ts: unsealedWords[0].ts,
         hash: 'Pending...',
         text: unsealedWords.map(w => w.word).join(' '),
@@ -874,8 +873,8 @@ app.get('/api/history/latest', async (req, res) => {
       });
     }
 
-    // Return both the chunks and the date used
-    res.json({ date: today, chunks: allChunks });
+    // Return both the chapters and the date used
+    res.json({ date: today, chapters: allChapters });
 
   } catch (error) {
     console.error(`[api] Error fetching latest history:`, error);
@@ -886,12 +885,12 @@ app.get('/api/history/latest', async (req, res) => {
 /**
  * GET /api/history/dates
  * ----------------------
- * Returns a sorted list of unique dates for which history chunks are available in the database.
+ * Returns a sorted list of unique dates for which history chapters are available in the database.
  */
 app.get('/api/history/dates', async (req, res) => {
   try {
-    // This query finds all chunks, groups them by their UTC date, and returns the unique dates.
-    const dates = await chunksCollection.aggregate([
+    // This query finds all chapters, groups them by their UTC date, and returns the unique dates.
+    const dates = await chaptersCollection.aggregate([
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$ts" } } }
@@ -912,8 +911,8 @@ app.get('/api/history/dates', async (req, res) => {
 /**
  * GET /api/history/:date
  * ----------------------
- * Returns an array of history chunks for a specific date.
- * This now includes both sealed chunks and a "live" chunk of unsealed words.
+ * Returns an array of history chapters for a specific date.
+ * This now includes both sealed chapters and a "live" chapter of unsealed words.
  */
 app.get('/api/history/:date', async (req, res) => {
   const { date } = req.params;
@@ -927,40 +926,40 @@ app.get('/api/history/:date', async (req, res) => {
     const startOfDay = new Date(`${date}T00:00:00.000Z`);
     const endOfDay = new Date(`${date}T23:59:59.999Z`);
 
-    // Query 1: Get all permanently sealed chunks for the given date.
-    const sealedChunks = await chunksCollection.find({
+    // Query 1: Get all permanently sealed chapters for the given date.
+    const sealedChapters = await chaptersCollection.find({
       ts: {
         $gte: startOfDay.getTime(),
         $lte: endOfDay.getTime(),
       },
     }).sort({ ts: 1 }).toArray();
 
-    let allChunks = [...sealedChunks];
+    let allChapters = [...sealedChapters];
     let unsealedWords = [];
 
     // Check if the requested date is the server's current UTC date.
     const serverTodayUTC = new Date().toISOString().split('T')[0];
 
-    // If it's today, we fetch ALL unsealed words to show the live chunk.
+    // If it's today, we fetch ALL unsealed words to show the live chapter.
     if (date === serverTodayUTC) {
       unsealedWords = await wordsCollection.find({
-        chunkId: null,
+        chapterId: null,
       }).sort({ ts: 1 }).toArray();
     }
 
-    // If there are unsealed words, package them into a temporary "live" chunk.
+    // If there are unsealed words, package them into a temporary "live" chapter.
     if (unsealedWords.length > 0) {
-      const liveChunk = {
+      const liveChapter = {
         ts: unsealedWords[0].ts, // Timestamp of the first word in the series
         hash: 'Pending...',      // A placeholder hash
         text: unsealedWords.map(w => w.word).join(' '),
         words: unsealedWords,
-        isLive: true           // A flag for the front-end to identify this chunk
+        isLive: true           // A flag for the front-end to identify this chapter
       };
-      allChunks.push(liveChunk);
+      allChapters.push(liveChapter);
     }
 
-    res.json(allChunks);
+    res.json(allChapters);
   } catch (error) {
     console.error(`[api] Error reading history for ${date}:`, error);
     res.status(500).json({ error: 'Failed to retrieve history.' });
@@ -968,25 +967,25 @@ app.get('/api/history/:date', async (req, res) => {
 });
 
 /**
- * GET /chunk/:hash
+ * GET /chapter/:hash
  * ----------------
- * Provides a canonical, shareable URL for a single chunk.
+ * Provides a canonical, shareable URL for a single chapter.
  * - For social media crawlers, it serves an HTML page with Open Graph meta tags.
  * - For regular users, it redirects to the correct daily history page with a
- * URL fragment to scroll the user to the specific chunk.
+ * URL fragment to scroll the user to the specific chapter.
  */
-app.get('/chunk/:hash', async (req, res) => {
+app.get('/chapter/:hash', async (req, res) => {
   try {
     const { hash } = req.params;
     if (!hash || hash.length !== 64) { // SHA-256 hashes are 64 hex characters
-      return res.status(400).send('Invalid chunk hash.');
+      return res.status(400).send('Invalid chapter hash.');
     }
 
-    // 1. Find the chunk in the database using its unique hash.
-    const chunk = await chunksCollection.findOne({ hash });
+    // 1. Find the chapter in the database using its unique hash.
+    const chapter = await chaptersCollection.findOne({ hash });
 
-    if (!chunk) {
-      return res.status(404).send('Chunk not found.');
+    if (!chapter) {
+      return res.status(404).send('Chapter not found.');
     }
 
     // 2. Check the User-Agent to see if the visitor is a social media crawler.
@@ -995,10 +994,10 @@ app.get('/chunk/:hash', async (req, res) => {
 
     if (isCrawler) {
       // 3. If it's a crawler, serve a minimal HTML page with meta tags for the preview.
-      console.log(`[share] Crawler detected (${userAgent}), serving meta tags for chunk ${hash.substring(0,12)}.`);
-      const title = `snTnz Story Chunk`;
-      const description = `"${chunk.text.substring(0, 150)}..."`;
-      const url = `${req.protocol}://${req.get('host')}/chunk/${hash}`;
+      console.log(`[share] Crawler detected (${userAgent}), serving meta tags for chapter ${hash.substring(0,12)}.`);
+      const title = `snTnz Story Chapter`;
+      const description = `"${chapter.text.substring(0, 150)}..."`;
+      const url = `${req.protocol}://${req.get('host')}/chapter/${hash}`;
 
       res.status(200).send(`
         <!DOCTYPE html>
@@ -1011,32 +1010,32 @@ app.get('/chunk/:hash', async (req, res) => {
           <meta property="og:url" content="${url}">
           <meta property="og:title" content="${title}">
           <meta property="og:description" content="${description}">
-          <meta property="og:image" content="${chunk.imageUrl}">
+          <meta property="og:image" content="${chapter.imageUrl}">
           <meta name="twitter:card" content="summary_large_image">
           <meta name="twitter:url" content="${url}">
           <meta name="twitter:title" content="${title}">
           <meta name="twitter:description" content="${description}">
-          <meta name="twitter:image" content="${chunk.imageUrl}">
+          <meta name="twitter:image" content="${chapter.imageUrl}">
         </head>
         <body>
           <h1>${title}</h1>
-          <p>${chunk.text}</p>
-          <img src="${chunk.imageUrl}" alt="AI generated image for chunk">
+          <p>${chapter.text}</p>
+          <img src="${chapter.imageUrl}" alt="AI generated image for chapter">
         </body>
         </html>
       `);
     } else {
       // 4. If it's a regular user, redirect them to the correct history page.
-      const date = new Date(chunk.ts);
+      const date = new Date(chapter.ts);
       const dateString = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-      const redirectUrl = `/history.html?date=${dateString}#${chunk.hash}`;
+      const redirectUrl = `/history.html?date=${dateString}#${chapter.hash}`;
 
       console.log(`[share] User detected, redirecting to: ${redirectUrl}`);
       res.redirect(302, redirectUrl);
     }
 
   } catch (error) {
-    console.error('[share] Error handling chunk request:', error);
+    console.error('[share] Error handling chapter request:', error);
     res.status(500).send('Internal Server Error');
   }
 });
@@ -1066,18 +1065,18 @@ io.on('connection', async (socket) => {
 
   // Send the initial state to the newly connected client.
   const recentWords = await wordsCollection.find().sort({ ts: -1 }).limit(constants.CURRENT_TEXT_LENGTH).toArray();
-  const initialChunks = [{
+  const initialChapters = [{
       words: recentWords.reverse(),
-      // We can use the timestamp of the last word as a stand-in for the chunk's timestamp
+      // We can use the timestamp of the last word as a stand-in for the chapter's timestamp
       ts: recentWords.length > 0 ? recentWords[recentWords.length - 1].ts : Date.now(),
   }];
-  const latestChunkWithImage = await chunksCollection.findOne({ imageUrl: { $exists: true, $ne: null } }, { sort: { ts: -1 } });
+  const latestChapterWithImage = await chaptersCollection.findOne({ imageUrl: { $exists: true, $ne: null } }, { sort: { ts: -1 } });
 
   socket.emit('initialState', {
-    initialChunks,
+    initialChapters,
     liveSubmissions: getLiveFeedState(userId),
     nextTickTimestamp,
-    latestImageUrl: latestChunkWithImage?.imageUrl || null
+    latestImageUrl: latestChapterWithImage?.imageUrl || null
   });
 
   // Handles a client joining the history room for real-time updates.
@@ -1152,8 +1151,8 @@ async function startServer() {
   initSocial();
   await loadInitialTextFromHistory();
 
-  // Schedule the daily chunk sealing job.
-  cron.schedule(constants.HISTORY_CHUNK_SCHEDULE_CRON, () => {
+  // Schedule the daily chapter sealing job.
+  cron.schedule(constants.HISTORY_CHAPTER_SCHEDULE_CRON, () => {
     logger.info('[history] Seal scheduled at next round end');
     mustSeal = true;
   }, { scheduled: true, timezone: 'UTC' });
@@ -1193,15 +1192,15 @@ async function shutdown(sig) {
     logger.info('[shutdown] Sockets and HTTP server closed.');
 
     // 2. Find all unsealed words.
-    const allUnsealedWords = await wordsCollection.find({ chunkId: null }).sort({ ts: 1 }).toArray();
+    const allUnsealedWords = await wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray();
     const lastTitleIndex = allUnsealedWords.findLastIndex(w => w.isTitle === true);
 
     // Only save the current chapter if it has a valid title.
     if (lastTitleIndex !== -1) {
       const wordsToSave = allUnsealedWords.slice(lastTitleIndex);
       logger.info(`[shutdown] Saving ${wordsToSave.length} unsealed words from current chapter.`);
-      await unsealedChunkCollection.updateOne(
-          { _id: 'live_chunk_backup' },
+      await unsealedChapterCollection.updateOne(
+          { _id: 'live_chapter_backup' },
           { $set: { words: wordsToSave, style: currentWritingStyle, savedAt: new Date() } },
           { upsert: true }
       );

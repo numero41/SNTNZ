@@ -61,7 +61,7 @@ function initSocial() {
 /**
  * @summary Posts content to X, with or without an image.
  * @param {string} fullText - The untruncated story text.
- * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} shareableUrl - The URL to the story chapter.
  * @param {string|null} imageUrl - The public URL of the image to attach, or null.
  * @returns {Promise<void>}
  */
@@ -101,7 +101,7 @@ async function postToX(fullText, shareableUrl, imageUrl) {
 /**
  * @summary Creates and publishes an Instagram photo post, using a fallback image if necessary.
  * @param {string} fullText - The untruncated story text.
- * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} shareableUrl - The URL to the story chapter.
  * @param {string|null} imageUrl - The public URL of the image to post.
  * @returns {Promise<string>} The ID of the published media item.
  */
@@ -159,7 +159,7 @@ async function postToInstagram(fullText, shareableUrl, imageUrl) {
 /**
  * @summary Posts content to a Facebook Page, with or without a photo.
  * @param {string} fullText - The untruncated story text.
- * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} shareableUrl - The URL to the story chapter.
  * @param {string|null} imageUrl - The public URL of the image, or null.
  * @returns {Promise<string>} The ID of the created Facebook post.
  */
@@ -341,7 +341,7 @@ async function checkAndRefreshFbLongToken(daysThreshold = 7, isProduction) {
 /**
  * @summary Formats and truncates text to fit within a platform's character limit.
  * @param {string} fullText - The original, untruncated story text.
- * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} shareableUrl - The URL to the story chapter.
  * @param {string} hashtags - The string of hashtags to append.
  * @param {number} maxLength - The maximum character limit for the platform (e.g., 280 for X).
  * @returns {string} The final, formatted text for the post.
@@ -381,7 +381,7 @@ function formatPostText(fullText, shareableUrl, hashtags, maxLength) {
 /**
  * @summary Posts content to all configured social media platforms. Skips all posts if no image is provided.
  * @param {string} fullText - The untruncated story text.
- * @param {string} shareableUrl - The URL to the story chunk.
+ * @param {string} shareableUrl - The URL to the story chapter.
  * @param {string|null} imageUrl - The public URL of the image to post. If null, all posting is skipped.
  * @returns {Promise<void>}
  */
@@ -409,6 +409,9 @@ async function postEverywhere(fullText, shareableUrl, imageUrl) {
 module.exports = {
   initSocial,
   formatPostText,
+  postToInstagram,
+  postToFacebookPage,
+  postToX,
   postEverywhere,
   checkAndRefreshFbLongToken,
 };

@@ -17,10 +17,12 @@
 
 const pino = require('pino');
 const { notifyError } = require('./mailer');
+const isProduction = process.env.NODE_ENV === 'production';
+
 
 // In development, we use 'pino-pretty' for nice, human-readable logs.
 // In production, we log as JSON for machines to parse.
-const transport = process.env.NODE_ENV !== 'production'
+const transport = !isProduction
   ? {
       target: 'pino-pretty',
       options: {
@@ -54,34 +56,36 @@ const _error = logger.error.bind(logger);
 logger.error = (...args) => {
   try {
     let line;
+    const [first, ...rest] = args;
 
-    if (args.length === 1) {
-      const a = args[0];
-      if (a instanceof Error) {
-        line = `${a.message}\n${a.stack}`;
-      } else if (typeof a === 'string') {
-        line = a;
+    // Handle the most common pattern: logger.error({ err, ... }, 'message')
+    if (first && typeof first === 'object') {
+      const msg = rest.map(String).join(' ');
+      let details;
+
+      // Check for an 'err' property that is an Error instance
+      if (first.err instanceof Error) {
+        // If found, use its message and stack for the email
+        details = `${first.err.message}\n${first.err.stack}`;
+      } else if (first instanceof Error) {
+        // Handle logger.error(err, 'message')
+        details = `${first.message}\n${first.stack}`;
       } else {
-        line = JSON.stringify(a);
+        // Fallback for other kinds of objects
+        details = JSON.stringify(first);
       }
+
+      line = [msg, details].filter(Boolean).join(' | ');
+
     } else {
-      // Normalize common (object, message, ...rest) pattern.
-      const [first, ...rest] = args;
-      if (first && typeof first === 'object' && !(first instanceof Error)) {
-        const msg = rest.map(String).join(' ');
-        const objTxt =
-          first instanceof Error
-            ? `${first.message}\n${first.stack}`
-            : JSON.stringify(first);
-        line = [msg, objTxt].filter(Boolean).join(' | ');
-      } else {
-        // e.g., ('a', 'b', 'c')
-        line = args.map((v) => (v instanceof Error ? `${v.message}\n${v.stack}` : String(v))).join(' ');
-      }
+      // Handle simple strings: logger.error('message 1', 'message 2')
+      line = args.map((v) => (v instanceof Error ? `${v.message}\n${v.stack}` : String(v))).join(' ');
     }
 
     // Fire-and-forget (throttled in mailer)
-    notifyError(line);
+    if (isProduction) {
+      notifyError(line);
+    }
   } catch (_err) {
     // Never break logging.
   }

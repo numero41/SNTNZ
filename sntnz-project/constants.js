@@ -11,33 +11,33 @@
 const isProduction = process.env.NODE_ENV === 'production';
 
 const ROUND_DURATION_SECONDS_PROD = 60;
-const CHUNK_DURATION_MINUTES_PROD = 360;
+const CHAPTER_DURATION_MINUTES_PROD = 360;
 
-const ROUND_DURATION_SECONDS_DEV = 60;
-const CHUNK_DURATION_MINUTES_DEV = 360;
+const ROUND_DURATION_SECONDS_DEV = 20;
+const CHAPTER_DURATION_MINUTES_DEV = 20;
 
 // --- Dynamically Calculate Values Before Exporting ---
-const CHUNK_DURATION_MINUTES = isProduction ? CHUNK_DURATION_MINUTES_PROD : CHUNK_DURATION_MINUTES_DEV;
+const CHAPTER_DURATION_MINUTES = isProduction ? CHAPTER_DURATION_MINUTES_PROD : CHAPTER_DURATION_MINUTES_DEV;
 
-let HISTORY_CHUNK_SCHEDULE_CRON;
+let HISTORY_CHAPTER_SCHEDULE_CRON;
 
-if (CHUNK_DURATION_MINUTES < 60) {
+if (CHAPTER_DURATION_MINUTES < 60) {
   // Case 1: Duration is less than an hour. Use the minute field.
   // Example: For 20 minutes -> '*/20 * * * *'
-  HISTORY_CHUNK_SCHEDULE_CRON = `*/${CHUNK_DURATION_MINUTES} * * * *`;
+  HISTORY_CHAPTER_SCHEDULE_CRON = `*/${CHAPTER_DURATION_MINUTES} * * * *`;
 } else {
   // Case 2: Duration is one or more hours. Use the hour field.
-  const hours = CHUNK_DURATION_MINUTES / 60;
-  if (CHUNK_DURATION_MINUTES % 60 !== 0) {
-    console.warn(`[sntnz config] WARNING: CHUNK_DURATION_MINUTES (${CHUNK_DURATION_MINUTES}) is not a clean multiple of 60. The cron schedule may not run as expected.`);
+  const hours = CHAPTER_DURATION_MINUTES / 60;
+  if (CHAPTER_DURATION_MINUTES % 60 !== 0) {
+    console.warn(`[sntnz config] WARNING: CHAPTER_DURATION_MINUTES (${CHAPTER_DURATION_MINUTES}) is not a clean multiple of 60. The cron schedule may not run as expected.`);
   }
 
   // Render.com doesn't accept "*/N" in the hours field reliably, so expand manually
   if (Number.isInteger(hours)) {
     const hourList = Array.from({ length: 24 / hours }, (_, i) => i * hours).join(',');
-    HISTORY_CHUNK_SCHEDULE_CRON = `0 ${hourList} * * *`;
+    HISTORY_CHAPTER_SCHEDULE_CRON = `0 ${hourList} * * *`;
   } else {
-    HISTORY_CHUNK_SCHEDULE_CRON = `*/${CHUNK_DURATION_MINUTES} * * * *`; // fallback
+    HISTORY_CHAPTER_SCHEDULE_CRON = `*/${CHAPTER_DURATION_MINUTES} * * * *`; // fallback
   }
 }
 
@@ -77,8 +77,8 @@ module.exports = {
   PUNCTUATION_REGEX_STRING: "^[(\"'*_]*[a-zA-Z0-9'-]+[.,!?;:...\"'_)]*$",
 
   // --- History ---
-  CHUNK_DURATION_MINUTES: CHUNK_DURATION_MINUTES,
-  HISTORY_CHUNK_SCHEDULE_CRON: HISTORY_CHUNK_SCHEDULE_CRON,
+  CHAPTER_DURATION_MINUTES: CHAPTER_DURATION_MINUTES,
+  HISTORY_CHAPTER_SCHEDULE_CRON: HISTORY_CHAPTER_SCHEDULE_CRON,
 
   // --- Writing Styles ---
   WRITING_STYLES: [

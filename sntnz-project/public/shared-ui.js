@@ -6,6 +6,76 @@
  */
 
 /**
+ * Renders a single word with its associated newline and smart spacing into a container.
+ * This is the single source of truth for all word rendering in the application.
+ *
+ * @param {object} wordData - The word object to render.
+ * @param {HTMLElement} container - The parent element to render into.
+ * @param {object} [options={}] - Rendering options.
+ * @param {boolean} [options.prepend=false] - If true, prepends all elements instead of appending.
+ */
+export function renderWord(wordData, container, { prepend=false, addExtraTitleLine=true  } = {}) {
+  // --- 1. CONFIGURATION & ELEMENT CREATION ---
+
+  const IS_PUNCTUATION = /^[.,!?;:)]$/;
+  const styles = wordData.styles || {};
+  const wordSpan = document.createElement('span');
+  wordSpan.className = 'word';
+  wordSpan.dataset.ts = wordData.ts;
+  wordSpan.dataset.username = wordData.username;
+  wordSpan.dataset.pct = (wordData.pct || 0).toFixed(2);
+  wordSpan.dataset.count = wordData.count;
+  wordSpan.dataset.total = wordData.total;
+  wordSpan.textContent = wordData.word;
+  wordSpan.style.fontWeight = styles.bold ? 'bold' : 'normal';
+  wordSpan.style.fontStyle = styles.italic ? 'italic' : 'normal';
+  wordSpan.style.textDecoration = styles.underline ? 'underline' : 'none';
+
+  // --- 2. APPLY LAYOUT AND INSERT INTO DOM ---
+
+  if (prepend) {
+    // --- PREPEND LOGIC ---
+    // When prepending, we must insert elements in the REVERSE of their visual order.
+    // The last thing called is the first thing you see.
+
+    // 1. Insert the Word SPAN first.
+    container.prepend(wordSpan);
+
+    // 2. Insert the Space second, so it appears *before* the word span.
+    if (!IS_PUNCTUATION.test(wordData.word)) {
+      container.prepend(document.createTextNode(' '));
+    }
+
+    // 3. Insert Newlines last, so they appear *before* the space and word.
+    if (styles.newline) {
+      container.prepend(document.createElement('br'));
+      if (wordData.isTitle) {
+        container.prepend(document.createElement('br'));
+      }
+    }
+
+  } else {
+    // --- APPEND LOGIC (insert elements in normal visual order) ---
+
+    // 1. Insert Newlines first.
+    if (styles.newline) {
+      if (wordData.isTitle && addExtraTitleLine) {
+        container.appendChild(document.createElement('br'));
+      }
+      container.appendChild(document.createElement('br'));
+    }
+
+    // 2. Insert the Smart Spacing second.
+    if (container.hasChildNodes() && !IS_PUNCTUATION.test(wordData.word)) {
+      container.appendChild(document.createTextNode(' '));
+    }
+
+    // 3. Insert the Word itself last.
+    container.appendChild(wordSpan);
+  }
+}
+
+/**
  * Adds event listeners to a container to show a tooltip on word click.
  * This function uses event delegation for efficiency.
  * @param {HTMLElement} containerElement - The element to listen for clicks on (e.g., the main text container or history container).
@@ -283,7 +353,7 @@ export function startSealCountdown(element, cronSchedule) {
 
     if (distance <= 0) {
       // It's time to seal, or the time has just passed.
-      // Refresh the page in 5 seconds to show the newly sealed chunk.
+      // Refresh the page in 5 seconds to show the newly sealed chapter.
       element.textContent = "Sealing now! Refreshing soon...";
       clearInterval(countdownInterval);
       setTimeout(() => window.location.reload(), 5000);

@@ -5,19 +5,19 @@
  * It imports shared UI components like the tooltip.
  */
 
-import { addTooltipEvents, startSealCountdown } from './shared-ui.js';
+import { addTooltipEvents, startSealCountdown, renderWord } from './shared-ui.js';
 export { renderContributorsDropdown } from './shared-ui.js';
 
 /**
- * Renders the complete history by iterating through server-generated chunks.
+ * Renders the complete history by iterating through server-generated chapters.
  * @param {HTMLElement} container - The main history container element.
- * @param {Array<Object>} chunks - The array of chunk data objects.
+ * @param {Array<Object>} chapters - The array of chapter data objects.
  * @param {string} cronSchedule - The cron schedule for the next seal.
  */
-export function renderHistory(container, chunks, cronSchedule) {
+export function renderHistory(container, chapters, cronSchedule) {
   // --- Handle No Data ---
-  // If the server returns no chunks, display a user-friendly message.
-  if (!chunks || chunks.length === 0) {
+  // If the server returns no chapters, display a user-friendly message.
+  if (!chapters || chapters.length === 0) {
     container.innerHTML = `<p class="history-error">No history found for this day.</p>`;
     return;
   }
@@ -28,11 +28,11 @@ export function renderHistory(container, chunks, cronSchedule) {
   // we can build our content first, and then append it to the DOM in a single operation.
   const fragment = document.createDocumentFragment();
 
-  // --- Create and Append Chunk Elements ---
-  chunks.forEach(chunk => {
-    const chunkElement = createChunkElement(chunk);
-    if (chunkElement) {
-      fragment.appendChild(chunkElement);
+  // --- Create and Append Chapter Elements ---
+  chapters.forEach(chapter => {
+    const chapterElement = createChapterElement(chapter);
+    if (chapterElement) {
+      fragment.appendChild(chapterElement);
     }
   });
 
@@ -41,161 +41,112 @@ export function renderHistory(container, chunks, cronSchedule) {
   container.appendChild(fragment); // Append the fully constructed content.
 
   // --- After rendering, find the timer element and start the countdown ---
-  const timerElement = container.querySelector('.chunk-seal-timer');
+  const timerElement = container.querySelector('.chapter-seal-timer');
   if (timerElement && cronSchedule) {
     startSealCountdown(timerElement, cronSchedule);
   }
 }
 
 /**
- * Creates an HTML span for a single word object.
- * @param {object} wordData - The data for one word.
- * @returns {string} The HTML string for the span.
- */
-function createWordSpan(wordData) {
-  const wordSpan = document.createElement('span');
-  wordSpan.className = 'word';
-
-  // Set Data Attributes
-  wordSpan.dataset.ts = wordData.ts;
-  wordSpan.dataset.username = wordData.username;
-  wordSpan.dataset.pct = wordData.pct.toFixed(2);
-  wordSpan.dataset.count = wordData.count;
-  wordSpan.dataset.total = wordData.total;
-
-  // Set Content and Styles securely
-  wordSpan.textContent = wordData.word; // <-- The secure part
-  wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
-  wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
-  wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
-
-  return wordSpan;
-}
-
-/**
- * Appends a single word to the existing live chunk without a full page reload.
+ * Appends a single word to the existing live chapter without a full page reload.
  * @param {object} wordData - The data for the new word.
  */
-export function appendWordToLiveChunk(wordData) {
-  // Find the text block of the live chunk (which contains the countdown timer).
-  const timerElement = document.querySelector('.chunk-seal-timer');
-  if (!timerElement) return; // No live chunk on the page (e.g., viewing an old day)
+export function appendWordToLiveChapter(wordData) {
+  // --- 1. LOCATE THE TARGET CONTAINER ---
+  const timerElement = document.querySelector('.chapter-seal-timer');
+  if (!timerElement) return; // Exit if no live chapter is on the page.
 
-  const liveTextBlock = timerElement.closest('.history-chunk')?.querySelector('.history-text-block');
+  const liveTextBlock = timerElement.closest('.history-chapter')?.querySelector('.history-text-block');
   if (!liveTextBlock) return;
 
-  // Create the new word element securely
-  const wordSpan = createWordSpan(wordData);
-
-  // Handle newlines before appending the word
-  if (wordData.styles.newline) {
-      liveTextBlock.appendChild(document.createElement('br'));
-  }
-  // Append a space
-  liveTextBlock.appendChild(document.createTextNode(' '));
-
-  // Add the word
-  liveTextBlock.appendChild(wordSpan);
+  // --- 2. DELEGATE TO THE SHARED RENDERER ---
+  renderWord(wordData, liveTextBlock, { addExtraTitleLine: false });
 }
 
 /**
- * Creates the HTML element for a single history chunk.
- * @param {Object} chunkData - The data for one chunk.
+ * Creates the HTML element for a single history chapter.
+ * @param {Object} chapterData - The data for one chapter.
  * @returns {HTMLElement | null} The fully constructed div element or null if data is invalid.
  */
-function createChunkElement(chunkData) {
-  // 1. CREATE THE MAIN CONTAINER
-  //    We start by creating the main 'div' that will hold everything for this chunk.
+function createChapterElement(chapterData) {
+  // --- 1. SETUP THE MAIN CONTAINER ---
+  // We start by creating the main 'div' that will hold everything for this chapter.
   const el = document.createElement('div');
-  el.className = 'history-chunk';
-  //    Assign the chunk's unique hash as the element's ID. This allows for deep-linking (e.g., page.html#hash).
-  el.id = chunkData.hash;
-  //    Also store the hash in a data attribute, which is a standard way to attach data for JS to read easily.
-  el.dataset.hash = chunkData.hash;
+  el.className = 'history-chapter';
 
-  // 2. FORMAT METADATA
-  //    Convert the raw timestamp (a number) into a human-readable HH:MM format.
-  const date = new Date(chunkData.ts);
+  // Assign the chapter's unique hash as the element's ID. This allows for
+  // deep-linking (e.g., history.html#a1b2c3...).
+  el.id = chapterData.hash;
+
+  // We also store the hash in a data attribute, which is a standard way to
+  // attach data for JavaScript to read easily.
+  el.dataset.hash = chapterData.hash;
+
+  // --- 2. FORMAT METADATA & DEFINE STATIC ASSETS ---
+  // Convert the raw timestamp (a number) into a human-readable HH:MM format.
+  const date = new Date(chapterData.ts);
   const hh = String(date.getHours()).padStart(2, '0'); // padStart ensures we get '09' instead of '9'.
   const mm = String(date.getMinutes()).padStart(2, '0');
   const time = `${hh}:${mm}`;
 
-  // 3. DEFINE STATIC ASSETS AND CONDITIONAL HTML
-  //    Store SVG icon markup in a variable for reusability.
+  // Store SVG icon markup in a variable for reusability.
   const shareIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3z"></path></svg>`;
 
-  //    Determine what to display for the hash. If the chunk is "live" (not yet sealed),
-  //    show a countdown timer. Otherwise, show the shortened, clickable hash.
-  const hashDisplay = chunkData.isLive
-    ? `<span class="chunk-seal-timer" title="These words are not yet sealed.">Calculating...</span>`
-    : `<span class="chunk-hash" title="Copy Hash" data-hash="${chunkData.hash}">${chunkData.hash.substring(0, 12)}...</span>`;
+  // --- 3. PREPARE CONDITIONAL HTML (TIMER, BUTTONS, IMAGE) ---
+  // Determine what to display for the hash. If the chapter is "live" (not yet
+  // sealed), show a countdown timer. Otherwise, show the shortened, clickable hash.
+  const hashDisplay = chapterData.isLive
+    ? `<span class="chapter-seal-timer" title="These words are not yet sealed.">Calculating...</span>`
+    : `<span class="chapter-hash" title="Copy Hash" data-hash="${chapterData.hash}">${chapterData.hash.substring(0, 12)}...</span>`;
 
-  // Create the share button if the chunk is sealed
-  const shareButtonHtml = chunkData.isLive ? '' : `
+  // Only create the share button if the chapter is sealed (not live).
+  const shareButtonHtml = chapterData.isLive ? '' : `
     <button class="share-btn">
       ${shareIcon} Share
     </button>
   `;
 
-  //    If an imageUrl exists for this chunk, prepare the image HTML. Otherwise, this remains an empty string.
+  // If an imageUrl exists for this chapter, prepare the image HTML. Otherwise,
+  // this remains an empty string and no image block will be rendered.
   let imageHtml = '';
-  if (chunkData.imageUrl) {
-    const altText = `AI image for chunk: ${chunkData.text.substring(0, 100)}...`;
+  if (chapterData.imageUrl) {
+    const altText = `AI image for chapter: ${chapterData.text.substring(0, 100)}...`;
     imageHtml = `
       <div class="image-container">
-        <img src="${chunkData.imageUrl}" alt="${altText}" class="chunk-image">
+        <img src="${chapterData.imageUrl}" alt="${altText}" class="chapter-image">
       </div>
     `;
   }
 
-  // 4. ASSEMBLE THE STATIC (NON-USER-GENERATED) PARTS
-  //    We use '.innerHTML' here, which is safe because all the content (`time`, `hashDisplay`, `shareIcon`, `imageHtml`)
-  //    is generated by our own code, not by users. This is more efficient than creating each of these elements one by one.
+  // --- 4. ASSEMBLE THE STATIC (NON-USER-GENERATED) PARTS ---
   el.innerHTML = `
-    <div class="chunk-meta">
-      <div class="chunk-info">
-        <span class="chunk-time">${time}</span>
+    <div class="chapter-meta">
+      <div class="chapter-info">
+        <span class="chapter-time">${time}</span>
         ${hashDisplay}
       </div>
-      <div class="chunk-actions">
+      <div class="chapter-actions">
         ${shareButtonHtml}
-        </button>
       </div>
     </div>
     ${imageHtml}
   `;
 
-  // 5. **SECURELY** BUILD AND APPEND THE TEXT BLOCK
-  //    This is the most critical part for security. We will now build the story text
-  //    element by element, never using '.innerHTML' with user-provided content.
+  // --- 5. BUILD AND APPEND THE TEXT BLOCK ---
   const textBlock = document.createElement('div');
   textBlock.className = 'history-text-block';
 
-  //    Loop through every word object in the chunk's data.
-  chunkData.words.forEach(wordData => {
-    //    First, check if this word is meant to start a new line.
-    if (wordData.styles.newline) {
-      //      If so, append a <br> element.
-      textBlock.appendChild(document.createElement('br'));
-    }
-
-    //    Next, call our secure `createWordSpan` function. This function returns a fully-formed,
-    //    safe `<span>` element where the word content has been set using '.textContent'.
-    const wordSpan = createWordSpan(wordData);
-    textBlock.appendChild(wordSpan); // Append the safe element to our text block.
-
-    //    Finally, add a space after each word. We use `createTextNode` to ensure the space is treated as text.
-    textBlock.appendChild(document.createTextNode(' '));
+  // Loop through every word object in the chapter's data.
+  chapterData.words.forEach(wordData => {
+    renderWord(wordData, textBlock, { addExtraTitleLine: false });
   });
 
-  // Remove the first empty line
-  if (textBlock.firstChild && textBlock.firstChild.tagName === 'BR') {
-    textBlock.removeChild(textBlock.firstChild);
-  }
-  // 6. FINALIZE AND RETURN
-  //    Append the now fully-populated (and secure) text block to our main chunk element.
+  // --- 6. FINALIZE AND RETURN ---
+  // Append the fully-populated text block to our main
+  // chapter element.
   el.appendChild(textBlock);
-  //    Return the complete, safe-to-render chunk element.
+
+  // Return the complete, chapter element.
   return el;
 }
 
@@ -271,15 +222,15 @@ export function setupEventListeners(historyContainer, tooltip) {
     // e.target.closest() finds the nearest ancestor that matches the selector.
     const shareButton = e.target.closest('.share-btn');
     if (shareButton) {
-      // Find the parent chunk element to get its hash
-      const chunkElement = shareButton.closest('.history-chunk');
-      const chunkHash = chunkElement.dataset.hash;
-      if (!chunkHash) return;
+      // Find the parent chapter element to get its hash
+      const chapterElement = shareButton.closest('.history-chapter');
+      const chapterHash = chapterElement.dataset.hash;
+      if (!chapterHash) return;
 
       // --- Fetch the formatted text from the server ---
       let textToShare = "Read this story from the sntnz project."; // A default fallback text
       try {
-        const response = await fetch(`/api/share-text/${chunkHash}`);
+        const response = await fetch(`/api/share-text/${chapterHash}`);
         const data = await response.json();
         if (data.shareText) {
           textToShare = data.shareText;
@@ -288,9 +239,9 @@ export function setupEventListeners(historyContainer, tooltip) {
         console.error("Failed to fetch share text:", err);
       }
 
-      const shortHash = chunkHash.substring(0, 12);
-      const url = `${window.location.origin}/chunk/${shortHash}`;
-      const shareData = { title: 'snTnz Story Chunk', text: textToShare, url: url };
+      const shortHash = chapterHash.substring(0, 12);
+      const url = `${window.location.origin}/chapter/${shortHash}`;
+      const shareData = { title: 'snTnz Story Chapter', text: textToShare, url: url };
 
       // Use the modern Web Share API if available.
       if (navigator.share) {
@@ -309,7 +260,7 @@ export function setupEventListeners(historyContainer, tooltip) {
     }
 
     // --- Copy Hash Logic ---
-    const hashSpan = e.target.closest('.chunk-hash');
+    const hashSpan = e.target.closest('.chapter-hash');
     if (hashSpan) {
       const fullHash = hashSpan.dataset.hash;
       await navigator.clipboard.writeText(fullHash);

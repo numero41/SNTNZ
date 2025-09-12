@@ -31,20 +31,20 @@ async function fetchAndRenderHistory() {
       // 1. Fetch application configuration and all available dates for pagination
       const configResponse = await fetch('/config');
       const CFG = await configResponse.json();
-      const cronSchedule = CFG.HISTORY_CHUNK_SCHEDULE_CRON;
+      const cronSchedule = CFG.HISTORY_CHAPTER_SCHEDULE_CRON;
       const allDates = await (await fetch('/api/history/dates')).json();
 
       // 2. Determine which data to fetch based on the URL
       const urlParams = new URLSearchParams(window.location.search);
       const requestedDate = urlParams.get('date');
-      let chunks, targetDate;
+      let chapters, targetDate;
 
       if (requestedDate) {
         // Case A: A specific date is in the URL, so we fetch it directly.
         targetDate = requestedDate;
         const historyRes = await fetch(`/api/history/${targetDate}`, { cache: 'no-store' });
         if (!historyRes.ok) throw new Error(`Could not load history for ${targetDate}.`);
-        chunks = await historyRes.json();
+        chapters = await historyRes.json();
       } else {
         // Case B: No date is in the URL. We ask the server for the "latest" content.
         // This avoids timezone and clock-drift issues.
@@ -52,7 +52,7 @@ async function fetchAndRenderHistory() {
         if (!latestRes.ok) throw new Error('Could not load latest history.');
         const latestData = await latestRes.json();
 
-        chunks = latestData.chunks;
+        chapters = latestData.chapters;
         targetDate = latestData.date; // Use the date the server told us is "today"
 
         // Update the browser's URL to include the specific date without reloading the page.
@@ -62,10 +62,10 @@ async function fetchAndRenderHistory() {
       }
 
       // 3. Process the fetched data
-      if (!chunks || (Array.isArray(chunks) && chunks.length === 0)) {
+      if (!chapters || (Array.isArray(chapters) && chapters.length === 0)) {
         throw new Error('No history is available for this day.');
       }
-      const allWords = chunks.flatMap(chunk => chunk.words || []);
+      const allWords = chapters.flatMap(chapter => chapter.words || []);
 
       // 4. Find the timestamp of the very last word on the page (for live updates)
       if (allWords.length > 0) {
@@ -76,7 +76,7 @@ async function fetchAndRenderHistory() {
       const scrollPosition = window.scrollY;
 
       // 6. Use the UI module to render all page components
-      ui.renderHistory(historyContainer, chunks, cronSchedule);
+      ui.renderHistory(historyContainer, chapters, cronSchedule);
       ui.renderContributorsDropdown(contributorsContainer, allWords, historyContainer);
       ui.renderPagination(paginationContainer, allDates, targetDate);
 
@@ -100,20 +100,20 @@ async function fetchAndRenderHistory() {
   if (window.location.hash) {
     // Use a short timeout to ensure the DOM has fully rendered.
     setTimeout(() => {
-      const chunkId = window.location.hash.substring(1); // Remove the '#'
-      const targetChunk = document.getElementById(chunkId);
+      const chapterId = window.location.hash.substring(1); // Remove the '#'
+      const targetChapter = document.getElementById(chapterId);
 
-      if (targetChunk) {
+      if (targetChapter) {
         // Scroll the element into the middle of the viewport.
-        targetChunk.scrollIntoView({
+        targetChapter.scrollIntoView({
           behavior: 'smooth',
           block: 'center'
         });
 
         // Add a temporary highlight to make it obvious.
-        targetChunk.style.backgroundColor = 'var(--color-user-highlight)';
+        targetChapter.style.backgroundColor = 'var(--color-user-highlight)';
         setTimeout(() => {
-          targetChunk.style.backgroundColor = ''; // Remove highlight after 3 seconds
+          targetChapter.style.backgroundColor = ''; // Remove highlight after 3 seconds
         }, 3000);
       }
     }, 500);
@@ -123,15 +123,11 @@ async function fetchAndRenderHistory() {
   if (imageModal) {
     const overlay = imageModal.querySelector('.modal-overlay');
     const closeBtn = imageModal.querySelector('.modal-close');
-    const fullResBtn = imageModal.querySelector('#fullResBtn');
 
     // Open modal on image click
     historyContainer.addEventListener('click', (e) => {
-      const clickedImage = e.target.closest('.chunk-image');
+      const clickedImage = e.target.closest('.chapter-image');
       if (clickedImage) {
-        const imgSrc = clickedImage.src;
-        fullSizeImage.src = imgSrc;
-        fullResBtn.href = imgSrc;
         imageModal.classList.add('visible');
       }
     });
@@ -158,12 +154,12 @@ async function fetchAndRenderHistory() {
 
     // If the latest word is newer than the last one we've shown, append it.
     if (latestWord && latestWord.ts > lastWordTimestamp) {
-      ui.appendWordToLiveChunk(latestWord);
+      ui.appendWordToLiveChapter(latestWord);
       lastWordTimestamp = latestWord.ts; // Update our tracker to prevent duplicates.
     }
   });
 
-  // 7. Listen for newly sealed chunks and refresh the page data
+  // 7. Listen for newly sealed chapters and refresh the page data
   socket.on('newImageSealed', () => {
     // Check if the user is currently viewing today's date.
     const urlParams = new URLSearchParams(window.location.search);

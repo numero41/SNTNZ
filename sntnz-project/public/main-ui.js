@@ -6,7 +6,7 @@
 // response to server events and user actions.
 // ============================================================================
 
-import { addTooltipEvents, renderContributorsDropdown, startSealCountdown, throttle } from './shared-ui.js';
+import { renderWord, addTooltipEvents, renderContributorsDropdown, startSealCountdown, throttle } from './shared-ui.js';
 
 // --- MODULE STATE ---
 // These variables hold the state of the UI throughout the application's lifecycle.
@@ -77,7 +77,7 @@ export function init(socketInstance, config) {
   addInfoModalEvents();
   addImageModalEvents();
   addFormAndStyleEvents();
-  initSealCountdown(CFG.HISTORY_CHUNK_SCHEDULE_CRON);
+  initSealCountdown(CFG.HISTORY_CHAPTER_SCHEDULE_CRON);
 }
 
 
@@ -90,24 +90,24 @@ export function init(socketInstance, config) {
  * Renders the initial state of the application on first load.
  * @param {Object} initialState - The full initial state object from the server.
  */
-export function renderInitialState({ currentText: initialChunks, liveSubmissions, latestImageUrl }) {
+export function renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl }) {
   currentTextContainer.innerHTML = '';
   imageTimeline = []; // Clear the timeline on re-init
   currentWordsArray = []; // Clear the words array
 
-  // Process each chunk to render words and build the timeline
-  initialChunks.forEach(chunk => {
-      if (!chunk.words || chunk.words.length === 0) return;
+  // Process each chapter to render words and build the timeline
+  initialChapters.forEach(chapter => {
+      if (!chapter.words || chapter.words.length === 0) return;
 
-      renderWords(chunk.words); // Render the words from the chunk
-      currentWordsArray.push(...chunk.words); // Add words to our flat array for other features
+      renderWords(chapter.words); // Render the words from the chapter
+      currentWordsArray.push(...chapter.words); // Add words to our flat array for other features
 
-      // If the chunk has an image, add its time range to our timeline
-      if (chunk.imageUrl) {
+      // If the chapter has an image, add its time range to our timeline
+      if (chapter.imageUrl) {
           imageTimeline.push({
-              start_ts: chunk.words[0].ts,
-              end_ts: chunk.words[chunk.words.length - 1].ts,
-              imageUrl: chunk.imageUrl
+              start_ts: chapter.words[0].ts,
+              end_ts: chapter.words[chapter.words.length - 1].ts,
+              imageUrl: chapter.imageUrl
           });
       }
   });
@@ -157,7 +157,7 @@ export function renderLatestImage(imageUrl) {
 
     // Otherwise, create and load the new image.
     const img = new Image();
-    img.alt = 'AI-generated image for the current story chunk';
+    img.alt = 'AI-generated image for the current story chapter';
     img.onload = () => {
       latestImageContainer.innerHTML = ''; // Clear placeholder or old image.
       latestImageContainer.appendChild(img);
@@ -172,7 +172,7 @@ export function renderLatestImage(imageUrl) {
       return;
     }
     // Otherwise, clear any existing image and show the placeholder.
-    latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chunk</div>`;
+    latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chapter</div>`;
   }
 }
 
@@ -199,85 +199,50 @@ export function showImageGenerationPlaceholder() {
  * @param {Array<Object>} newCurrentText - The full, updated text array from the server.
  */
 export function appendNewWord(newCurrentText) {
-    // --- Determine Scroll Position ---
-    const el = currentTextContainer;
-    const scrollBuffer = 5; // A small buffer to account for rendering inconsistencies.
-    // Check if the user is scrolled to the very bottom before the new word is added.
-    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= scrollBuffer;
+  // --- 1. STATE VALIDATION & SETUP ---
+  const el = currentTextContainer;
+  const scrollBuffer = 5;
+  const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= scrollBuffer;
 
-    // --- Get New Word and Validate ---
-    const newWord = newCurrentText[newCurrentText.length - 1];
-    const lastWordInClientArray = currentWordsArray[currentWordsArray.length - 1];
+  // Validate that the new word is actually new to prevent duplicates.
+  const newWord = newCurrentText[newCurrentText.length - 1];
+  const lastWordInClientArray = currentWordsArray[currentWordsArray.length - 1];
+  if (!newWord || (lastWordInClientArray && lastWordInClientArray.ts === newWord.ts)) {
+    return;
+  }
 
-    // Prevent rendering if the new word is missing or is a duplicate of the last one.
-    // This can happen due to network latency or server-side race conditions.
-    if (!newWord || (lastWordInClientArray && lastWordInClientArray.ts === newWord.ts)) {
-        return;
-    }
+  // --- 2. RENDER THE NEW WORD & MANAGE SCROLL ---
+  renderWord(newWord, el);
 
-    // --- Render and Manage Content ---
-    // Render only the single new word for efficiency.
-    renderWords([newWord]);
+  // If the user was scrolled to the bottom, keep the content window from
+  // growing infinitely by removing the top-most line.
+  const newHeight = el.scrollHeight;
+  if (wasAtBottom && lastScrollHeight > 0 && newHeight > lastScrollHeight) {
+    removeFirstRenderedLine();
+  }
 
-    const newHeight = el.scrollHeight;
-    // If the user was at the bottom and the container grew, remove the top line
-    // to maintain a consistent amount of content and prevent infinite growth.
-    if (wasAtBottom && lastScrollHeight > 0 && newHeight > lastScrollHeight) {
-        removeFirstRenderedLine();
-    }
+  // --- 3. UPDATE CLIENT-SIDE STATE ---
+  currentWordsArray.push(newWord);
+  renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
+  lastScrollHeight = el.scrollHeight;
 
-    // --- Update State ---
-    currentWordsArray.push(newWord); // Add the new word to our client-side array.
-    renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
-    lastScrollHeight = el.scrollHeight;
-
-    // --- Auto-scroll if Necessary ---
-    // If the user was at the bottom, keep them there by scrolling down again.
-    if (wasAtBottom) {
-        el.scrollTop = el.scrollHeight;
-    }
+  // If the user was at the bottom, keep them scrolled to the bottom.
+  if (wasAtBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
 }
-
 
 /**
  * Renders an array of words by appending them to the container.
  * @param {Array<Object>} wordsArray - The array of word data to render.
  */
 export function renderWords(wordsArray) {
+  // Loop through the array and delegate each word to the shared renderer.
   wordsArray.forEach((wordData) => {
-    // --- Handle Newlines ---
-    // If the word object has the newline style, insert a <br> element.
-    if (wordData.styles && wordData.styles.newline) {
-        // If the word is a title, add an extra <br> to create a blank line above it.
-        if (wordData.isTitle) {
-            currentTextContainer.appendChild(document.createElement('br'));
-        }
-        currentTextContainer.appendChild(document.createElement('br'));
-    }
-
-    // --- Create Word Element ---
-    const wordSpan = document.createElement('span');
-    wordSpan.className = 'word';
-
-    // --- Set Data Attributes ---
-    // Store metadata directly on the element for tooltips and other interactions.
-    wordSpan.dataset.ts = wordData.ts;
-    wordSpan.dataset.username = wordData.username;
-    wordSpan.dataset.count = wordData.count;
-    wordSpan.dataset.total = wordData.total;
-    wordSpan.dataset.pct = wordData.pct;
-
-    // --- Set Content and Styles ---
-    wordSpan.textContent = wordData.word; // Add a space for separation.
-    wordSpan.style.fontWeight = wordData.styles.bold ? 'bold' : 'normal';
-    wordSpan.style.fontStyle = wordData.styles.italic ? 'italic' : 'normal';
-    wordSpan.style.textDecoration = wordData.styles.underline ? 'underline' : 'none';
-
-    // --- Append to DOM ---
-    currentTextContainer.appendChild(document.createTextNode(' '));
-    currentTextContainer.appendChild(wordSpan);
+    renderWord(wordData, currentTextContainer);
   });
-  // After adding words, update any related UI elements like scroll fades.
+
+  // Update any UI elements that depend on the text container's state.
   updateScrollEffects();
 }
 
@@ -545,32 +510,32 @@ export function updateScrollEffects() {
 
   if (visibleWords.length === 0) return;
 
-  // --- 2. Tally "votes" for each chunk based on how many of its words are visible ---
-  const chunkVotes = new Map();
+  // --- 2. Tally "votes" for each chapter based on how many of its words are visible ---
+  const chapterVotes = new Map();
   let liveWordCount = 0;
-  const lastImageChunk = imageTimeline.length > 0 ? imageTimeline[imageTimeline.length - 1] : null;
+  const lastImageChapter = imageTimeline.length > 0 ? imageTimeline[imageTimeline.length - 1] : null;
 
   visibleWords.forEach(word => {
     const timestamp = parseInt(word.dataset.ts, 10);
-    // Find which historical image chunk this word belongs to.
+    // Find which historical image chapter this word belongs to.
     const timelineEntry = imageTimeline.find(entry =>
       timestamp >= entry.start_ts && timestamp <= entry.end_ts
     );
 
     if (timelineEntry) {
-      // If it belongs to a chunk with an image, add a vote for that image.
-      chunkVotes.set(timelineEntry.imageUrl, (chunkVotes.get(timelineEntry.imageUrl) || 0) + 1);
-    } else if (lastImageChunk && timestamp > lastImageChunk.end_ts) {
+      // If it belongs to a chapter with an image, add a vote for that image.
+      chapterVotes.set(timelineEntry.imageUrl, (chapterVotes.get(timelineEntry.imageUrl) || 0) + 1);
+    } else if (lastImageChapter && timestamp > lastImageChapter.end_ts) {
       // If the word is newer than any known image, it's a "live" word.
       liveWordCount++;
     }
-    // Words from chunks without images are correctly ignored here.
+    // Words from chapters without images are correctly ignored here.
   });
 
-  // --- 3. Determine the historical chunk with the most visible words ---
+  // --- 3. Determine the historical chapter with the most visible words ---
   let winningImageUrl = null;
   let maxVotes = 0;
-  for (const [imageUrl, votes] of chunkVotes.entries()) {
+  for (const [imageUrl, votes] of chapterVotes.entries()) {
     if (votes > maxVotes) {
       maxVotes = votes;
       winningImageUrl = imageUrl; // This assigns the URL of the winning historical image.
@@ -580,12 +545,12 @@ export function updateScrollEffects() {
   // --- 4. Decide which image to display ---
   let finalImageUrl = null;
   if (liveWordCount > maxVotes) {
-    // If there are more live words visible than words from any single historical chunk,
+    // If there are more live words visible than words from any single historical chapter,
     // show the most recent "live" image.
     finalImageUrl = latestImageUrlOnLoad;
   } else {
     // Otherwise, show the winning historical image.
-    // If no image chunk had visible words, winningImageUrl will be null.
+    // If no image chapter had visible words, winningImageUrl will be null.
     finalImageUrl = winningImageUrl;
   }
 
@@ -605,7 +570,7 @@ export function handleNewSealedImage(imageUrl) {
 
   // Preload the image, then atomically swap it in.
   const img = new Image();
-  img.alt = 'AI-generated image for the current story chunk';
+  img.alt = 'AI-generated image for the current story chapter';
   img.onload = () => {
     const el = currentTextContainer;
     const scrollBuffer = 5;
@@ -701,14 +666,10 @@ function addImageModalEvents() {
 
   const overlay = imageModal.querySelector('.modal-overlay');
   const closeBtn = imageModal.querySelector('.modal-close');
-  const fullResBtn = imageModal.querySelector('#fullResBtn');
 
   // Open modal when an image is clicked
   latestImageContainer.addEventListener('click', (e) => {
     if (e.target.tagName === 'IMG') {
-      const imgSrc = e.target.src;
-      fullSizeImage.src = imgSrc;
-      fullResBtn.href = imgSrc;
       imageModal.classList.add('visible');
     }
   });
@@ -786,11 +747,12 @@ function addFormAndStyleEvents() {
 // ============================================================================
 
 /**
- * Fetches older chunks from the server and prepends them to the display.
+ * Fetches older chapters from the server and prepends them to the display.
  * This function implements the "infinite scroll" feature for browsing history
  * and updates the in-memory image timeline.
  */
 async function loadMoreHistory() {
+  // --- 1. PRE-FETCH CHECKS ---
   if (isLoadingMore || noMoreHistory || currentWordsArray.length === 0) {
     return;
   }
@@ -799,48 +761,25 @@ async function loadMoreHistory() {
   const oldestTimestamp = currentWordsArray[0].ts;
 
   try {
+    // --- 2. FETCH & PROCESS OLDER CHAPTERS ---
     const response = await fetch(`/api/history/before?ts=${oldestTimestamp}`);
-    // chunkGroups are received from server newest-to-oldest, e.g., [267, 266, 265]
-    const chunkGroups = await response.json();
+    const chapterGroups = await response.json();
 
-    if (chunkGroups.length > 0) {
+    if (chapterGroups.length > 0) {
       const container = currentTextContainer;
       const oldScrollHeight = container.scrollHeight;
       const newTimelineEntries = [];
 
-      // --- 1. RENDER CONTENT ---
-      // We process the chunks in the order we receive them (newest-to-oldest).
-      // This will result in the OLDEST of the new chunks appearing at the top of the screen.
-      chunkGroups.forEach(group => {
-        // Words in the DB are chronological. Prepend reverses them, so we must loop backwards.
+      // --- RENDER CONTENT ---
+      chapterGroups.forEach(group => {
+        // Words are chronological. Loop backwards to PREPEND them in the correct order.
         for (let i = group.words.length - 1; i >= 0; i--) {
-            const wordData = group.words[i];
-            const styles = wordData.styles || {};
-            const wordSpan = document.createElement('span');
-            wordSpan.className = 'word';
-
-            wordSpan.dataset.ts = wordData.ts;
-            wordSpan.dataset.username = wordData.username;
-            wordSpan.dataset.count = wordData.count;
-            wordSpan.dataset.total = wordData.total;
-            wordSpan.dataset.pct = wordData.pct;
-
-            wordSpan.textContent = wordData.word;
-            wordSpan.style.fontWeight = styles.bold ? 'bold' : 'normal';
-            wordSpan.style.fontStyle = styles.italic ? 'italic' : 'normal';
-            wordSpan.style.textDecoration = styles.underline ? 'underline' : 'none';
-
-            container.prepend(wordSpan);
-            container.prepend(document.createTextNode(' '));
-
-            if (styles.newline) {
-              container.prepend(document.createElement('br'));
-            }
-            if (wordData.isTitle) {
-              container.prepend(document.createElement('br'));
-            }
+          const wordData = group.words[i];
+          // Use the shared renderer with the `prepend: true` option.
+          renderWord(wordData, container, { prepend: true });
         }
 
+        // --- Update Image Timeline ---
         if (group.imageUrl && group.words.length > 0) {
             newTimelineEntries.push({
                 start_ts: group.words[0].ts,
@@ -850,18 +789,14 @@ async function loadMoreHistory() {
         }
       });
 
-      // --- 2. UPDATE STATE for the NEXT PAGINATION ---
-      // To correctly set the cursor for the *next* fetch, we need to find the oldest word.
-      // This requires reversing a *copy* of the chunks array to get them oldest-to-newest.
-      const reversedChunkGroups = [...chunkGroups].reverse();
-      const allNewWords = reversedChunkGroups.flatMap(g => g.words);
+      // --- 3. UPDATE CLIENT STATE & SCROLL POSITION ---
+      const reversedChapterGroups = [...chapterGroups].reverse();
+      const allNewWords = reversedChapterGroups.flatMap(g => g.words);
       currentWordsArray = [...allNewWords, ...currentWordsArray];
-
-      // Update other UI elements
       imageTimeline = [...newTimelineEntries.reverse(), ...imageTimeline];
       renderContributorsDropdown(mainContributorsContainer, currentWordsArray, container);
 
-      // --- MAINTAIN SCROLL POSITION ---
+      // Maintain the user's scroll position relative to the old content.
       const newScrollHeight = container.scrollHeight;
       container.scrollTop = newScrollHeight - oldScrollHeight;
 
