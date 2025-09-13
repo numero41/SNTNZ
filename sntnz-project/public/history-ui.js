@@ -97,7 +97,7 @@ function createChapterElement(chapterData) {
   // sealed), show a countdown timer. Otherwise, show the shortened, clickable hash.
   const hashDisplay = chapterData.isLive
     ? `<span class="chapter-seal-timer" title="These words are not yet sealed.">Calculating...</span>`
-    : `<span class="chapter-hash" title="Copy Hash" data-hash="${chapterData.hash}">${chapterData.hash.substring(0, 12)}...</span>`;
+    : `<span class="chapter-hash" title="Copy Hash" data-hash="${chapterData.hash}">${chapterData.hash.substring(0, 8)}...</span>`;
 
   // Only create the share button if the chapter is sealed (not live).
   const shareButtonHtml = chapterData.isLive ? '' : `
@@ -229,19 +229,23 @@ export function setupEventListeners(historyContainer, tooltip) {
 
       // --- Fetch the formatted text from the server ---
       let textToShare = "Read this story from the sntnz project."; // A default fallback text
+      let shareTitle = 'snTnz Story Chapter'; // A default fallback title
+
       try {
         const response = await fetch(`/api/share-text/${chapterHash}`);
         const data = await response.json();
         if (data.shareText) {
           textToShare = data.shareText;
         }
+        if (data.chapterTitle) {
+          shareTitle = data.chapterTitle;
+        }
       } catch (err) {
         console.error("Failed to fetch share text:", err);
       }
 
-      const shortHash = chapterHash.substring(0, 12);
-      const url = `${window.location.origin}/chapter/${shortHash}`;
-      const shareData = { title: 'snTnz Story Chapter', text: textToShare, url: url };
+      const url = `${window.location.origin}/chapter/${chapterHash}`;
+      const shareData = { title: `snTnz Story - ${shareTitle}`, text: textToShare, url: url };
 
       // Use the modern Web Share API if available.
       if (navigator.share) {

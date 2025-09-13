@@ -187,6 +187,66 @@ export function addTooltipEvents(containerElement, tooltipElement) {
 }
 
 /**
+ * Adds event listeners to a container to open a full-screen image modal on click.
+ * This function handles both opening and closing the modal, and it locks
+ * the body scroll to prevent background interaction.
+ * @param {HTMLElement} triggerContainer - The parent element whose images will trigger the modal.
+ * @param {HTMLElement} imageModal - The modal container element.
+ * @param {HTMLElement} fullSizeImage - The <img> element inside the modal.
+ */
+export function addImageModalEvents(triggerContainer, imageModal, fullSizeImage) {
+  if (!triggerContainer || !imageModal || !fullSizeImage) return;
+
+  const bodyEl = document.body;
+  const overlay = imageModal.querySelector('.modal-overlay');
+  const closeBtn = imageModal.querySelector('.modal-close');
+
+  // grab (or create) the viewport meta
+  let viewportMeta = document.querySelector('meta[name="viewport"]');
+  if (!viewportMeta) {
+    viewportMeta = document.createElement('meta');
+    viewportMeta.name = 'viewport';
+    document.head.appendChild(viewportMeta);
+  }
+
+  const SCALABLE = 'width=device-width, initial-scale=1, maximum-scale=10, user-scalable=yes';
+  const LOCKED_1X = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+
+  const openModal = (e) => {
+    const clickedImage = e.target.closest('img');
+    if (!clickedImage) return;
+    e.preventDefault();
+
+    fullSizeImage.src = clickedImage.src;
+    imageModal.classList.add('visible');
+    bodyEl.classList.add('modal-open');
+  };
+
+  const closeModal = () => {
+    imageModal.classList.remove('visible');
+    bodyEl.classList.remove('modal-open');
+    fullSizeImage.src = '';
+
+    // --- Reset page zoom on close ---
+    // Step 1: briefly lock zoom to 1x (forces reset)
+    viewportMeta.setAttribute('content', LOCKED_1X);
+
+    // Step 2: after a short delay, re-enable pinch zoom
+    setTimeout(() => {
+      viewportMeta.setAttribute('content', SCALABLE);
+    }, 60);
+
+    // --- Scroll back to top if you want ---
+    window.scrollTo(0, 0);
+  };
+
+  triggerContainer.addEventListener('click', openModal);
+  overlay?.addEventListener('click', closeModal);
+  closeBtn?.addEventListener('click', closeModal);
+}
+
+
+/**
  * Creates a custom dropdown of unique contributors, sorted by contribution count,
  * and adds an event listener to highlight their words.
  * @param {HTMLElement} dropdownContainer - The element to add the dropdown into.

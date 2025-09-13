@@ -290,7 +290,7 @@ function calculateMinutesUntilNextSeal(cronSchedule) {
 function calculateWordsUntilNextSeal(currentChapterWords = []) {
   // First, calculate the total target size of the chapter based on time.
   const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHAPTER_SCHEDULE_CRON);
-  const totalTargetSize = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.8);
+  const totalTargetSize = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.9);
 
   // Then, subtract the words already written to find the remainder.
   const wordsWritten = currentChapterWords.length;
@@ -519,9 +519,9 @@ async function sealNewChapter() {
     // PHASE 4: OPTIONAL IMAGE GENERATION & CROSS-POST
     // ------------------------------------------------------------------------
     let imageUrl = null;
-    //if (isProduction) {
+    if (isProduction) {
       imageUrl = await generateAndUploadImage(chapterText, currentTitle, isProduction);
-    //}
+    }
 
     const newChapter = {
       ts: wordsToChapter[0].ts, // timestamp of first word
@@ -553,7 +553,7 @@ async function sealNewChapter() {
       io.emit('newImageSealed', { imageUrl: newChapter.imageUrl });
     }
 
-    logger.info({ chapterHash: hash.substring(0, 12) }, '[history] Successfully sealed chapter');
+    logger.info({ chapterHash: hash }, '[history] Successfully sealed chapter');
 
     // ------------------------------------------------------------------------
     // PHASE 6: SET GLOBAL VARS
@@ -793,8 +793,7 @@ app.get('/api/share-text/:hash', async (req, res) => {
     }
 
     // Reuse the exact same logic as the social media posts
-    const shortHash = chapter.hash.substring(0, 12);
-    const shareableUrl = `https://www.sntnz.com/chapter/${shortHash}`;
+    const shareableUrl = `https://www.sntnz.com/chapter/${chapter.hash}`;
 
     const shareText = formatPostText(
       chapter.text,
@@ -804,7 +803,7 @@ app.get('/api/share-text/:hash', async (req, res) => {
       23 // Use the standard 23 characters for Twitter's URL length
     );
 
-    res.json({ shareText });
+    res.json({ shareText, chapterTitle: chapter.title });
 
   } catch (error) {
     logger.error({ err: error }, '[api] Error generating share text');

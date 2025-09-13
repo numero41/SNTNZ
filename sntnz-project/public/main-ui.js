@@ -6,7 +6,7 @@
 // response to server events and user actions.
 // ============================================================================
 
-import { renderWord, addTooltipEvents, renderContributorsDropdown, startSealCountdown, throttle } from './shared-ui.js';
+import { renderWord, addTooltipEvents, renderContributorsDropdown, startSealCountdown, addImageModalEvents, throttle } from './shared-ui.js';
 
 // --- MODULE STATE ---
 // These variables hold the state of the UI throughout the application's lifecycle.
@@ -75,7 +75,7 @@ export function init(socketInstance, config) {
   addNavEvents();
   addTooltipEvents(currentTextContainer, tooltip);
   addInfoModalEvents();
-  addImageModalEvents();
+  addImageModalEvents(latestImageContainer, imageModal, fullSizeImage);
   addFormAndStyleEvents();
   initSealCountdown(CFG.HISTORY_CHAPTER_SCHEDULE_CRON);
 }
@@ -648,28 +648,6 @@ function addInfoModalEvents() {
   btnInfo.addEventListener('click', () => infoModal.classList.add('visible'));
   modalClose.addEventListener('click', () => infoModal.classList.remove('visible'));
   modalOverlay.addEventListener('click', () => infoModal.classList.remove('visible'));
-}
-
-/**
- * Attaches click handlers to open and close the image modal.
- */
-function addImageModalEvents() {
-  if (!imageModal || !latestImageContainer) return;
-
-  const overlay = imageModal.querySelector('.modal-overlay');
-  const closeBtn = imageModal.querySelector('.modal-close');
-
-  // Open modal when an image is clicked
-  latestImageContainer.addEventListener('click', (e) => {
-    if (e.target.tagName === 'IMG') {
-      fullSizeImage.src = e.target.src;
-      imageModal.classList.add('visible');
-    }
-  });
-
-  // Close modal listeners
-  closeBtn.addEventListener('click', () => imageModal.classList.remove('visible'));
-  overlay.addEventListener('click', () => imageModal.classList.remove('visible'));
 }
 
 /**

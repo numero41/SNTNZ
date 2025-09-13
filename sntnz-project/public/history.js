@@ -6,6 +6,7 @@
  */
 
 import * as ui from './history-ui.js';
+import { addImageModalEvents } from './shared-ui.js';
 
 (async function() {
   // --- DOM Element References ---
@@ -96,7 +97,10 @@ async function fetchAndRenderHistory() {
   // 2. Set up event listeners for tooltips and sharing (from history-ui.js).
   ui.setupEventListeners(historyContainer, tooltip);
 
-  // 3. Checks if the URL has a hash (e.g., #a1b2c3d4g...) and scrolls to it.
+  // 3. Set up event listeners for the new image modal.
+  addImageModalEvents(historyContainer, imageModal, fullSizeImage);
+
+  // 4. Checks if the URL has a hash (e.g., #a1b2c3d4g...) and scrolls to it.
   if (window.location.hash) {
     // Use a short timeout to ensure the DOM has fully rendered.
     setTimeout(() => {
@@ -117,25 +121,6 @@ async function fetchAndRenderHistory() {
         }, 3000);
       }
     }, 500);
-  }
-
-  // 4. Add event listeners for the new image modal.
-  if (imageModal) {
-    const overlay = imageModal.querySelector('.modal-overlay');
-    const closeBtn = imageModal.querySelector('.modal-close');
-
-    // Open modal on image click
-    historyContainer.addEventListener('click', (e) => {
-      const clickedImage = e.target.closest('.chapter-image');
-      if (clickedImage) {
-        fullSizeImage.src = clickedImage.src;
-        imageModal.classList.add('visible');
-      }
-    });
-
-    // Close modal listeners
-    closeBtn.addEventListener('click', () => imageModal.classList.remove('visible'));
-    overlay.addEventListener('click', () => imageModal.classList.remove('visible'));
   }
 
   // 5. Connect to the WebSocket server
