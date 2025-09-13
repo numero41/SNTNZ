@@ -519,9 +519,9 @@ async function sealNewChapter() {
     // PHASE 4: OPTIONAL IMAGE GENERATION & CROSS-POST
     // ------------------------------------------------------------------------
     let imageUrl = null;
-    if (isProduction) {
+    //if (isProduction) {
       imageUrl = await generateAndUploadImage(chapterText, currentTitle, isProduction);
-    }
+    //}
 
     const newChapter = {
       ts: wordsToChapter[0].ts, // timestamp of first word

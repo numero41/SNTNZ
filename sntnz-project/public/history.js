@@ -128,6 +128,7 @@ async function fetchAndRenderHistory() {
     historyContainer.addEventListener('click', (e) => {
       const clickedImage = e.target.closest('.chapter-image');
       if (clickedImage) {
+        fullSizeImage.src = clickedImage.src;
         imageModal.classList.add('visible');
       }
     });

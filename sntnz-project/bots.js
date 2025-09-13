@@ -471,9 +471,11 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
     let summarized = text.trim();
     try {
       const summarizationPrompt = `
-        Summarize the following text into a single, concise paragraph of about 50-80 words
-        that visually describes the scene. Focus on concrete objects, colors, and actions.
-        Omit abstract concepts, dialogue, and character names. Output only the description.
+        Summarize the following text into a single, concise paragraph of about 30-50 words
+        that visually describes the key graphics elements of the scene.
+        Omit dialogue, and character names. Output only the description.
+        The description should be dreamlike, imaginary, and powerful.
+        This text is going to be used as a prompt for generating an artistic non photorealistic image.
         TEXT: "${summarized}"`.trim();
       const result = await textModelLite.generateContent({
         contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
@@ -502,7 +504,7 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
       ``,
       `CONSTRAINTS:`,
       `- the render must NOT be photorealistic.`,
-      `- the image must be highly detailed and fill the entire square canvas.`,
+      `- the image must be detailed and fill the entire square canvas.`,
     ].join('\n');
     logger.info({ finalPrompt: finalPrompt }, '[image] Final Imagen prompt prepared.');
 
@@ -544,9 +546,9 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
     // This gives you full control over font, size, color, and opacity.
       const watermarkSvg = `
         <svg width="1000" height="50">
-          <text x="95%" y="85%" text-anchor="middle"
-          font-family="IBM Plex Mono, monospace" font-size="20" font-weight="bold" fill="rgba(255, 153, 51, 0.71)">
-          ${chapterTitle} sntnz.com
+          <text x="50%" y="85%" text-anchor="middle"
+          font-family="IBM Plex Mono, monospace" font-size="20" fill="rgba(255, 153, 51, 0.71)">
+          ${chapterTitle} - sntnz.com
           </text>
         </svg>
       `;
@@ -557,7 +559,7 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
       .composite([
         {
           input: watermarkBuffer,
-          gravity: 'southeast', // Positions the watermark in the bottom-right corner
+          gravity: 'south', // Positions the watermark in the bottom-right corner
         },
       ])
       .toBuffer();

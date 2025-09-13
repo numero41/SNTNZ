@@ -44,9 +44,7 @@
   --border-dark: var(--border-width) solid var(--color-black);
 
   /* Transitions */
-  --transition-fast: all 0.2s ease-in-out;
-  --transition-medium: all 0.3s ease-in-out;
-  --transition-color: color 0.5s ease;
+  --transition: all 0.3s ease-in-out;
 }
 
 /* ============================================================================
@@ -152,7 +150,7 @@ body {
   text-decoration: none;
   color: var(--color-black);
   height: var(--button-small-size);
-  transition: all 0.2s ease;
+  transition: var(--transition);
 }
 
 .title-wrapper {
@@ -297,10 +295,10 @@ body {
   font-size: 0.9rem;
   font-family: inherit;
   padding: calc(var(--spacing-base) / 2);
-  border: var(--border-light);
+  border: 1px solid var(--color-grey1);
   border-radius: var(--border-radius);
   margin-right: calc(var(--spacing-base) / 2);
-  transition: var(--transition-fast);
+  transition: var(--transition);
 }
 
 /* Input focus/hover state */
@@ -322,11 +320,11 @@ body {
   font-size: 0.9rem;
   font-feature-settings: "tnum";
   padding: calc(var(--spacing-base) / 2) calc(var(--spacing-base) * 1.5);
-  border: var(--border-dark);
+  border: 1px solid var(--color-grey1);
   border-radius: var(--border-radius);
   background-color: var(--color-secondary);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: var(--transition);
   width: 80px;
   text-align: center;
 }
@@ -359,12 +357,12 @@ body {
   font-size: 0.9rem;
   color: var(--color-black);
   background-color: var(--color-white);
-  border: var(--border-light);
+  border: 1px solid var(--color-grey1);
   border-radius: var(--border-radius);
   width: var(--button-small-size);
   height: var(--button-small-size);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: var(--transition);
 }
 
 /* Variant indicators */
@@ -396,8 +394,14 @@ body {
   border-radius: var(--border-radius);
   overflow: hidden;
   box-shadow: 0 4px 15px var(--color-shadow);
+  border: 1px solid var(--color-grey1);
   aspect-ratio: 1 / 1;
   background-color: var(--color-white);
+  transition: var(--transition);
+}
+
+.image-container:hover {
+  border-color: var(--color-black);
 }
 
 .image-container img {
@@ -485,7 +489,7 @@ body {
   text-decoration: none;
   border-radius: 5px;
   font-size: 0.8rem;
-  transition: background-color 0.2s ease;
+  transition: var(--transition);
   opacity: 0.8;
   pointer-events: auto;
 }
@@ -623,7 +627,7 @@ body {
   line-height: 1;
   font-size: 14px;
   border-radius: var(--border-radius);
-  transition: var(--transition-fast);
+  transition: var(--transition);
 }
 
 .vote-btn.active {
@@ -687,7 +691,7 @@ body {
   background: transparent;
   color: var(--color-grey2);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: var(--transition);
   display: inline-flex;
   border: none;
   align-items: center;
@@ -770,7 +774,7 @@ body {
   border-radius: 5px;
   border: none;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: var(--transition);
   opacity: 0.8;
   width: 32px;
   height: 32px;
@@ -810,7 +814,7 @@ body {
   background-color: var(--color-white);
   min-width: 100px;
   box-shadow: 0 4px 15px var(--color-shadow);
-  border: var(--border-light);
+  border: 1px solid var(--color-grey1);
   border-radius: var(--border-radius);
   font-size: 0.9rem;
 }
@@ -822,6 +826,7 @@ body {
   display: block;
   align-content: center;
   text-align: center;
+  transition: var(--transition);
 }
 
 .user-dropdown-content a:hover {
@@ -870,6 +875,7 @@ body {
   min-width: 120px;
   justify-content: space-between;
   font-size: 0.9rem;
+  transition: var(--transition);
 }
 
 .contributors-dropdown-btn:hover {
@@ -885,7 +891,7 @@ body {
   background-color: var(--color-white);
   min-width: 160px;
   box-shadow: 0 4px 15px var(--color-shadow);
-  border: var(--border-light);
+  border: 1px solid var(--color-grey1);
   border-radius: var(--border-radius);
   max-height: 200px;
   overflow-y: auto;
@@ -897,6 +903,7 @@ body {
   text-decoration: none;
   display: block;
   font-size: 0.9rem;
+  transition: var(--transition);
 }
 
 .contributors-dropdown-content a:hover {
@@ -987,7 +994,7 @@ body {
 }
 .word {
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: var(--transition);
   border-radius: 2px;
 }
 .word:hover {
@@ -1036,7 +1043,7 @@ body {
   padding: 0.25rem 0.75rem;
   border: 1px solid var(--color-grey1);
   border-radius: 4px;
-  transition: all 0.2s ease;
+  transition: var(--transition);
 }
 .pagination-nav a:hover {
   color: var(--color-black);
@@ -1105,14 +1112,14 @@ body {
 /* Hash badge (copy target) */
 .chapter-hash {
   font-family: var(--font-main);
-  background-color: color-mix(in srgb, var(--color-white) 94%, var(--color-black) 6%); /* ≈ #f0f0f0 */
+  background-color: var(--color-grey0);
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: var(--transition);
 }
 .chapter-hash:hover {
-  background-color: color-mix(in srgb, var(--color-white) 88%, var(--color-black) 12%); /* ≈ #e0e0e0 */
+  background-color: var(--color-grey1);
 }
 
 /* Share button on chapters */
@@ -1129,6 +1136,7 @@ body {
   transition: all 0.2s ease;
   font-size: 0.9rem;
   color: var(--color-grey2);
+  transition: var(--transition);
 }
 .chapter-actions .share-btn:hover {
   border-color: var(--color-black);
@@ -1161,7 +1169,7 @@ body {
   -webkit-mask: var(--icon) no-repeat center / contain;
   mask: var(--icon) no-repeat center / contain;
   pointer-events: none;
-  transition: background-color 0.2s ease-in-out;
+  transition: var(--transition);
 }
 
 .social-link:hover .icon {

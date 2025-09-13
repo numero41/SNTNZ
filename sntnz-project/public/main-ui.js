@@ -177,21 +177,13 @@ export function renderLatestImage(imageUrl) {
 }
 
 /**
- * Displays a "Generating..." placeholder in the image container, but only
- * if the currently displayed image is the most recent one.
+ * Displays a "Generating..." placeholder in the image container.
+ * This is triggered by the server when a new chapter seal begins.
  */
 export function showImageGenerationPlaceholder() {
   if (!latestImageContainer) return;
   isImageGenerating = true;
-
-  const currentImg = latestImageContainer.querySelector('img');
-
-  // We only want to show the placeholder if the user is looking at the "live"
-  // edge of the story. We check this by seeing if the currently displayed
-  // image source matches our record of the latest available image.
-  if (currentImg && currentImg.src === latestImageUrlOnLoad) {
-    latestImageContainer.innerHTML = `<div class="image-generating-text">Generating new image...</div>`;
-  }
+  latestImageContainer.innerHTML = `<div class="image-generating-text">Generating Image...</div>`;
 }
 
 /**
@@ -670,6 +662,7 @@ function addImageModalEvents() {
   // Open modal when an image is clicked
   latestImageContainer.addEventListener('click', (e) => {
     if (e.target.tagName === 'IMG') {
+      fullSizeImage.src = e.target.src;
       imageModal.classList.add('visible');
     }
   });
