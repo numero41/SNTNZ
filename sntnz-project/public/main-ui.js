@@ -770,7 +770,7 @@ async function loadMoreHistory() {
       // Maintain the user's scroll position relative to the old content.
       const newScrollHeight = container.scrollHeight;
       container.scrollTop = newScrollHeight - oldScrollHeight;
-
+      updateScrollEffects();
     } else {
       noMoreHistory = true;
     }

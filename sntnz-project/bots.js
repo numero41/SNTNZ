@@ -469,25 +469,29 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
 
     // --- Step 2: Summarize Text with Gemini for a better visual prompt ---
     let summarized = text.trim();
-    try {
-      const summarizationPrompt = `
-        Summarize the following text into a single, concise paragraph of about 30-50 words
-        that visually describes the key graphics elements of the scene.
-        Omit dialogue, and character names. Output only the description.
-        The description should be dreamlike, imaginary, and powerful.
-        This text is going to be used as a prompt for generating an artistic non photorealistic image.
-        TEXT: "${summarized}"`.trim();
-      const result = await textModelLite.generateContent({
-        contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
-        generationConfig: { maxOutputTokens: 128, temperature: 0.3 }
-      });
-      const rawSummary = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
-      if (rawSummary) {
-        summarized = rawSummary.replace(/["“”]/g, '');
-        logger.info({ summarized }, '[image] Summarized description for Imagen');
+    const wordCount = summarized.split(/\s+/).length;
+
+    if (wordCount > 100) {
+      try {
+        const summarizationPrompt = `
+          Summarize the following text into a single, concise paragraph of about 30-50 words
+          that visually describes the key graphics elements of the scene.
+          Omit dialogue, and names. Output only the description.
+          The description should be dreamlike, imaginary, and powerful, and must give include a sense of light.
+          This text is going to be used as a prompt for generating an artistic image.
+          TEXT: "${summarized}"`.trim();
+        const result = await textModelFlash.generateContent({
+          contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
+          generationConfig: { maxOutputTokens: 128, temperature: 0.3 }
+        });
+        const rawSummary = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
+        if (rawSummary) {
+          summarized = rawSummary.replace(/["“”]/g, '');
+          logger.info({ summarized }, '[image] Summarized description for Imagen');
+        }
+      } catch (e) {
+        logger.warn({ err: e }, '[image] Summarization failed, using original text');
       }
-    } catch (e) {
-      logger.warn({ err: e }, '[image] Summarization failed, using original text');
     }
 
     // --- Step 3: Construct the Final Imagen Prompt ---
@@ -500,11 +504,14 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
       `- Medium/Surface: ${(selectedStyle.surface || []).join(', ')}`,
       `- Technique: ${selectedStyle.enforce.join(', ') || selectedStyle.description}`,
       `- Palette: ${(selectedStyle.palette || []).join(', ')}`,
-      `- Quality: fine art, gallery, poster, magazine cover, high premium grade.`,
+      `- Quality: graphical fine art, masterpiece, award-winning, high detail, intricate.`,
       ``,
-      `CONSTRAINTS:`,
-      `- the render must NOT be photorealistic.`,
-      `- the image must be detailed and fill the entire square canvas.`,
+      `CRITICAL:`,
+      `- YOU MUST NOT ADD ANY TEXT ON THE IMAGE. `,
+      `- AVOID photorealistic and 3D render aspects.`,
+      `- AVOID vignetting effect. `,
+      `- AVOID dark, muddy, or underexposed scenes. `,
+      `- the image must fill the entire square canvas.`,
     ].join('\n');
     logger.info({ finalPrompt: finalPrompt }, '[image] Final Imagen prompt prepared.');
 

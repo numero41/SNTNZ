@@ -191,18 +191,6 @@ module.exports = {
       ]
     },
     {
-      "name": "Cosmic Horror",
-      "description": "A dense, dread-filled style focusing on the insignificance of humanity before incomprehensible, alien forces. Language is archaic, heavy, and overwhelming.",
-      "enforce": [
-        "long, elaborate sentences",
-        "forbidden knowledge and ancient ruins",
-        "indescribable horrors, excessive adjectives ('cyclopean,' 'eldritch')",
-        "recurring sense of insignificance",
-        "psychological fragility and madness",
-        "ambiguity and suggestion over direct description"
-      ]
-    },
-    {
       "name": "Pulp Gothic Horror",
       "description": "A visceral, darkly entertaining horror style. Monsters, blood, and supernatural dread, but with melodramatic flair.",
       "enforce": [

@@ -390,7 +390,6 @@ async function endRoundAndElectWinner() {
 
   // 5. Process the winner, if one exists.
   if (winner) {
-
     // Rule 1: Force a newline after a chapter title.
     if (lastWinningWord && lastWinningWord.isTitle) {
       if (!winner.styles) winner.styles = {};
@@ -417,13 +416,30 @@ async function endRoundAndElectWinner() {
       if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
       botContext = pushBotContext(winner.word, botContext);
       io.emit('currentTextUpdated', currentText);
+
+      // --- Save Live Chapter State ---
+      // After every word is added, we snapshot the entire live chapter.
+      const currentChapterWords = await wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray();
+      if (currentChapterWords.length > 0) {
+        const liveChapterState = {
+          words: currentChapterWords,
+          botQueue: botQueue,
+          currentTitle: currentTitle,
+          currentWritingStyle: currentWritingStyle,
+          savedAt: new Date()
+        };
+        await unsealedChapterCollection.updateOne(
+          { _id: 'live_chapter_backup' },
+          { $set: liveChapterState },
+          { upsert: true } // Creates the document if it doesn't exist
+        );
+        logger.info('[state] Live chapter state saved to backup.');
+      }
     } catch (err) {
       logger.error({ err }, "[db] Failed to save word to database");
     }
 
     // 7. Unlock for users if a title has just won the round.
-    // If the lock is active AND the winning word is a title, the title has been
-    // successfully added. We can now release the lock for the next round.
     if (submissionIsLocked && winner.isTitle) {
       submissionIsLocked = false;
       logger.info('[server] Title sequence complete. Releasing user submission lock.');
@@ -442,13 +458,14 @@ async function endRoundAndElectWinner() {
   // After processing the winner, check if a seal is needed.
   if (mustSeal) {
     mustSeal = false;
-    await sealNewChapter(); // This will handle triggering the bot for the new title.
-    return; // Stop here to let the seal process dictate the next step.
+    // Clear the backup upon sealing a chapter
+    await unsealedChapterCollection.deleteOne({ _id: 'live_chapter_backup' });
+    botQueue = [];
+    await sealNewChapter();
+    return;
   }
 
   // --- Bot Trigger Logic for a Round ---
-  // This is the "Thinking" trigger. It fires immediately if the bot's state
-  // requires it to generate new content.
   const needsToGenerateNewContent = botMustContinueChapter || botMustStartChapter || botMustWriteTitle;
   if (needsToGenerateNewContent) {
     await triggerBot();
@@ -509,19 +526,13 @@ async function sealNewChapter() {
       return acc + sep + w.word;
     }, '').trim();
 
-    // Extract title from the first word if flagged as title
-    currentTitle = 'Untitled';
-    if (wordsToChapter[0].isTitle && wordsToChapter[0].word.startsWith('Chapter')) {
-      currentTitle = wordsToChapter[0].word;
-    }
-
     // ------------------------------------------------------------------------
     // PHASE 4: OPTIONAL IMAGE GENERATION & CROSS-POST
     // ------------------------------------------------------------------------
     let imageUrl = null;
-    if (isProduction) {
+    //if (isProduction) {
       imageUrl = await generateAndUploadImage(chapterText, currentTitle, isProduction);
-    }
+    //}
 
     const newChapter = {
       ts: wordsToChapter[0].ts, // timestamp of first word
@@ -598,63 +609,57 @@ async function sealNewChapter() {
   }
 }
 
-
 /**
  * Loads the most recent words from the database on server startup
- * to populate the in-memory `currentText` array.
+ * to populate the in-memory `currentText` array and restore bot state.
  */
 async function loadInitialTextFromHistory() {
-  logger.info('[history] Loading initial text from database...');
+  logger.info('[history] Attempting to restore live state from database...');
 
   try {
-    let restoredWords = [];
-    // 1. Attempt to restore the live chapter from a backup.
+    // Atomically find and delete the backup. This prevents race conditions
+    // if the server restarts multiple times in quick succession.
     const backup = await unsealedChapterCollection.findOneAndDelete({ _id: 'live_chapter_backup' });
 
     if (backup && backup.words && backup.words.length > 0) {
-      logger.info(`[history] Restoring ${backup.words.length} unsealed words from backup.`);
-      restoredWords = backup.words;
-    }
+      const restoredWords = backup.words;
+      logger.info({ restoredWords: restoredWords }, `[history] Restoring ${restoredWords.length} unsealed words from backup.`);
 
-    // 2. Check if the restored text (or lack thereof) is shorter than the desired context length.
-    if (restoredWords.length < constants.CURRENT_TEXT_LENGTH) {
-      const wordsNeeded = constants.CURRENT_TEXT_LENGTH - restoredWords.length;
+      // 1. Restore the core story and bot context
+      currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
+      restoredWords.forEach(w => {
+        botContext = pushBotContext(w.word, botContext);
+      });
 
-      // Determine the point in time to query before. If no backup, start from now.
-      const oldestTimestamp = restoredWords.length > 0 ? restoredWords[0].ts : Date.now();
+      // 2. Restore the bot's brain
+      botQueue = backup.botQueue || [];
+      currentTitle = backup.currentTitle || null;
+      currentWritingStyle = backup.currentWritingStyle || null;
+      logger.info({ queueSize: botQueue.length, title: currentTitle }, '[history] Bot state restored.');
 
-      logger.info(`[history] History is short. Fetching ${wordsNeeded} older words for padding.`);
-
-      // 3. Fetch the required number of older words from the main collection.
-      const paddingWords = await wordsCollection.find({ ts: { $lt: oldestTimestamp } })
-        .sort({ ts: -1 })
-        .limit(wordsNeeded)
-        .toArray();
-
-      // 4. Combine the older (padding) words with the live (restored) words.
-      currentText = paddingWords.reverse().concat(restoredWords);
+      // 3. Set the bot's next action based on the restored state
+      const hasTitle = restoredWords.some(w => w.isTitle);
+      if (!hasTitle || restoredWords.length === 0) {
+        botMustWriteTitle = true;
+      } else if (restoredWords.length === 1 && hasTitle) {
+        botMustStartChapter = true;
+      } else {
+        botMustContinueChapter = true;
+      }
+      logger.info({
+          mustWriteTitle: botMustWriteTitle,
+          mustStartChapter: botMustStartChapter,
+          mustContinueChapter: botMustContinueChapter
+      }, '[history] Bot action flags set.');
 
     } else {
-      // 5. If the backup was long enough, just take the most recent part of it.
-      currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
-    }
-
-    // 6. Populate the bot's context with the fully-loaded text.
-    logger.info({ wordCount: currentText.length }, '[history] Successfully loaded live words for context.');
-    currentText.forEach(w => {
-      botContext = pushBotContext(w.word, botContext);
-    });
-
-    //7. Update bot state
-    if (restoredWords.length === 1) {
-      botMustStartChapter = true;
-    } else if (restoredWords.length > 1) {
-      botMustContinueChapter = true;
-    } else if (restoredWords.length === 0) {
-      botMustWriteTitle = true;
+      logger.info('[history] No live chapter backup found. Starting fresh.');
+      botMustWriteTitle = true; // No history, so the bot must start a new story.
     }
   } catch (error) {
-    logger.error({ err: error }, '[history] Failed to load initial text');
+    logger.error({ err: error }, '[history] Failed to load initial state');
+    // Even on failure, ensure the bot knows it needs to start over.
+    botMustWriteTitle = true;
   }
 }
 
@@ -1170,58 +1175,41 @@ async function startServer() {
 
 /**
  * @summary Gracefully stops the server upon receiving an OS signal (e.g., Ctrl+C).
- * @description Ensures a clean shutdown by closing servers and attempting a final data save.
+ * @description Ensures a clean shutdown by closing servers and database connections.
+ * The live state is already persisted after each round, so no final save is needed.
  * @param {string} sig - The name of the OS signal that triggered the shutdown.
  */
 async function shutdown(sig) {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info({ signal: sig }, '[shutdown] Received signal');
+  logger.info({ signal: sig }, '[shutdown] Received signal. State is already saved.');
 
   // Set a failsafe timeout to force exit if anything hangs.
   const timeoutId = setTimeout(() => {
     logger.warn('[shutdown] Graceful shutdown timed out. Forcing exit.');
-    process.exit(1); // Exit with an error code on timeout.
+    process.exit(1);
   }, 5000);
 
   try {
     // 1. Stop taking new work.
     io.close();
-    server.close();
-    logger.info('[shutdown] Sockets and HTTP server closed.');
+    server.close(() => {
+        logger.info('[shutdown] Sockets and HTTP server closed.');
+    });
 
-    // 2. Find all unsealed words.
-    const allUnsealedWords = await wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray();
-    const lastTitleIndex = allUnsealedWords.findLastIndex(w => w.isTitle === true);
-
-    // Only save the current chapter if it has a valid title.
-    if (lastTitleIndex !== -1) {
-      const wordsToSave = allUnsealedWords.slice(lastTitleIndex);
-      logger.info(`[shutdown] Saving ${wordsToSave.length} unsealed words from current chapter.`);
-      await unsealedChapterCollection.updateOne(
-          { _id: 'live_chapter_backup' },
-          { $set: { words: wordsToSave, style: currentWritingStyle, savedAt: new Date() } },
-          { upsert: true }
-      );
-    } else if (allUnsealedWords.length > 0) {
-        logger.warn('[shutdown] Found unsealed words but no title. Discarding them as per rules.');
-    }
-
-    // 3. IMPORTANT: Close the database connection.
+    // 2. IMPORTANT: Close the database connection.
     await client.close();
     logger.info('[shutdown] MongoDB connection closed.');
 
-    // 4. If everything was successful, clear the failsafe timeout...
+    // 3. Clear the failsafe and exit cleanly.
     clearTimeout(timeoutId);
-
-    // 5. ...and exit cleanly.
     logger.info('[shutdown] Shutdown complete. Exiting.');
     process.exit(0);
 
   } catch (err) {
     logger.error({ err }, '[shutdown] An error occurred during shutdown.');
-    clearTimeout(timeoutId); // Clear timeout even on error
-    process.exit(1); // Exit with an error code.
+    clearTimeout(timeoutId);
+    process.exit(1);
   }
 }
 
