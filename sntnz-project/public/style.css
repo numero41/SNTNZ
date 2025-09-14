@@ -999,6 +999,7 @@ body.modal-open {
 }
 .word {
   cursor: pointer;
+  padding:  0.2rem 0;
   transition: var(--transition);
   border-radius: var(--border-radius-small);
 }

@@ -163,7 +163,7 @@ async function generateNewTitle(totalChapterCount, recentTitles = [], currentWri
 
       const titleResult = await withTimeout(textModelLite.generateContent({
           contents: [{ role: "user", parts: [{ text: titlePrompt }] }],
-          generationConfig: { maxOutputTokens: 50, temperature: 0.8 },
+          generationConfig: { maxOutputTokens: 64, temperature: 0.6 },
       }));
       const candidateTitle = (titleResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/["“”]/g, '');
 
@@ -477,13 +477,13 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
     if (wordCount > 100) {
       try {
         const summarizationPrompt = `
-          Summarize the following text into a single, concise paragraph of about 30-50 words.
+          Summarize the following text into a concise paragraph of MINIMUM 30-50 words.
           Omit dialogue, and names. Focus on visuals, light, colors, scenary.
-          Output only the description.
+          Output only the summarized text.
           TEXT: "${summarized}"`.trim();
         const result = await textModelFlash.generateContent({
           contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
-          generationConfig: { maxOutputTokens: 128, temperature: 0.3 }
+          generationConfig: { maxOutputTokens: 512, temperature: 0.6 }
         });
         const rawSummary = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
         if (rawSummary) {
