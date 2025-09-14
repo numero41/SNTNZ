@@ -63,8 +63,8 @@ setInterval(() => {
 /**
  * Fired once on connection to receive the complete initial state.
  */
-socket.on('initialState', ({ initialChapters, liveSubmissions, nextTickTimestamp: serverTimestamp, latestImageUrl }) => {
-  ui.renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl });
+socket.on('initialState', ({ initialChapters, liveSubmissions, nextTickTimestamp: serverTimestamp, latestImageUrl, isGeneratingImage }) => {
+  ui.renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isGeneratingImage });
   nextTickTimestamp = serverTimestamp;
 });
 

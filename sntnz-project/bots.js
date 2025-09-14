@@ -189,6 +189,9 @@ async function generateNewTitle(totalChapterCount, recentTitles = [], currentWri
     });
 
     logger.info({ title: finalTitleText }, '[bot] New title generated and queued.');
+    if (newQueue.length > 0) {
+      newQueue[0].writingStyle = currentWritingStyle.name;
+    }
     return newQueue; // Return immediately on success.
 
   } catch (err) {
@@ -218,7 +221,7 @@ async function generateNewChapter(targetWordCount, currentTitle, currentWritingS
       The story must have a clear beginning, middle, and a satisfying conclusion.
       Style Guide:
       - Style Name: ${currentWritingStyle.name}
-      - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
+      - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
       Chapter Title: "${currentTitle}"
       CRITICAL: Your entire response must be ONLY the story text. Do not repeat the title. Do not add any explanation or commentary.
     `.trim();
@@ -277,7 +280,7 @@ async function continueChapter(currentChapterWords, targetWordCount, currentWrit
             Write approximately ${targetWordCount} more words.
             Style Guide (adhere to this strictly):
             - Style Name: ${currentWritingStyle.name}
-            - Enforce These Elements: ${currentWritingStyle.enforce.join(', ')}
+            - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
             Existing Text:
             "${wordsSoFar}"
             CRITICAL: Your response must be ONLY the new, continuing text. Do not repeat the existing text. Do not add any explanation.
@@ -474,11 +477,9 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
     if (wordCount > 100) {
       try {
         const summarizationPrompt = `
-          Summarize the following text into a single, concise paragraph of about 30-50 words
-          that visually describes the key graphics elements of the scene.
-          Omit dialogue, and names. Output only the description.
-          The description should be dreamlike, imaginary, and powerful, and must give include a sense of light.
-          This text is going to be used as a prompt for generating an artistic image.
+          Summarize the following text into a single, concise paragraph of about 30-50 words.
+          Omit dialogue, and names. Focus on visuals, light, colors, scenary.
+          Output only the description.
           TEXT: "${summarized}"`.trim();
         const result = await textModelFlash.generateContent({
           contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],

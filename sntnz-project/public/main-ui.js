@@ -21,11 +21,9 @@ let isLoadingMore = false; // A flag to prevent multiple history loads simultane
 let noMoreHistory = false; // A flag to indicate if all history has been loaded.
 let isBooting = true; // A flag to manage initial scroll behavior on load.
 let currentUser = { loggedIn: false, username: null }; // Stores the current user's status.
-let userVotes = {}; // Tracks the user's own votes ('up' or 'down') for each word.
 let latestImageUrlOnLoad = null; // Default image URL
 let imageTimeline = []; // Store image data in memory.
 let isImageGenerating = false;
-let pendingImageUrl = null;
 
 // --- DOM ELEMENT REFERENCES ---
 // Caching DOM elements for performance to avoid repeated queries.
@@ -90,7 +88,7 @@ export function init(socketInstance, config) {
  * Renders the initial state of the application on first load.
  * @param {Object} initialState - The full initial state object from the server.
  */
-export function renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl }) {
+export function renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isGeneratingImage }) {
   currentTextContainer.innerHTML = '';
   imageTimeline = []; // Clear the timeline on re-init
   currentWordsArray = []; // Clear the words array
@@ -113,28 +111,23 @@ export function renderInitialState({ currentText: initialChapters, liveSubmissio
   });
 
   latestImageUrlOnLoad = latestImageUrl;
+  isImageGenerating = isGeneratingImage; // Store the initial generating status
   renderLiveFeed(liveSubmissions);
   renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
-  renderLatestImage(latestImageUrl);
 
   // --- Force Scroll to Bottom ---
-  // This complex sequence ensures the view starts at the most recent word,
-  // even on browsers that might interfere with simple scroll assignments on load.
   const el = currentTextContainer;
   const prevBehavior = el.style.scrollBehavior;
-  el.style.scrollBehavior = 'auto'; // Temporarily disable smooth scrolling for an instant jump.
+  el.style.scrollBehavior = 'auto';
 
-  // Using requestAnimationFrame ensures these DOM manipulations happen after the
-  // browser has finished its current paint cycle, preventing race conditions.
   requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight; // Jump to the bottom.
+      el.scrollTop = el.scrollHeight;
       requestAnimationFrame(() => {
-          // A second frame is used as a fallback for tricky rendering engines.
           el.scrollTop = el.scrollHeight;
-          el.style.scrollBehavior = prevBehavior; // Restore original scroll behavior.
+          el.style.scrollBehavior = prevBehavior;
           lastScrollHeight = el.scrollHeight;
-          isBooting = false; // Mark the boot process as complete.
-          updateScrollEffects(); // Update UI elements like scroll fades.
+          isBooting = false;
+          updateScrollEffects(); // This will set the initial image correctly.
       });
   });
 }
@@ -144,7 +137,7 @@ export function renderInitialState({ currentText: initialChapters, liveSubmissio
  * If no image URL is provided, it displays a placeholder message.
  * @param {string|null} imageUrl - The public URL of the image.
  */
-export function renderLatestImage(imageUrl) {
+export function renderImage(imageUrl, isGeneratingImage = false) {
   if (!latestImageContainer) return;
 
   // --- CASE 1: We need to display an image. ---
@@ -173,6 +166,9 @@ export function renderLatestImage(imageUrl) {
     }
     // Otherwise, clear any existing image and show the placeholder.
     latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chapter</div>`;
+    if (isGeneratingImage) {
+      showImageGenerationPlaceholder();
+    }
   }
 }
 
@@ -456,99 +452,70 @@ export function showFeedback(message, type = 'info') {
 }
 
 /**
- * Manages the state of scroll-related UI elements (fades, buttons)
- * and updates the main image to accurately match the currently viewed text.
+ * Manages scroll-related UI and updates the main image to match the currently viewed text.
  */
 export function updateScrollEffects() {
   const el = currentTextContainer;
   if (!el) return;
-  const buffer = 1;
+  const buffer = 5; // A small buffer for detecting scroll position
 
-  // --- Infinite Scroll & Fades ---
+  // --- Manage infinite scroll and UI fades ---
   if (el.scrollTop < 100 && !isBooting) {
     loadMoreHistory();
   }
-  const showBottomFade = el.scrollHeight - el.scrollTop > el.clientHeight + buffer;
+  const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= buffer;
   currentTextWrapper.classList.toggle('show-top-fade', true);
-  currentTextWrapper.classList.toggle('show-bottom-fade', showBottomFade);
-
-  // --- Update Button States ---
-  const isAtBottom = !showBottomFade;
+  currentTextWrapper.classList.toggle('show-bottom-fade', !isAtBottom);
   btnDown.disabled = isAtBottom;
   btnCurrent.disabled = isAtBottom;
 
-  // ========================================================================
-  // === UPDATE MAIN IMAGE LOGIC
-  // ========================================================================
-  // If an image is currently being generated by the server, do nothing.
-  if (isImageGenerating) {
-    return;
-  }
-  // If the user is scrolled to the bottom, always show the latest available image.
+  // === IMAGE LOGIC
+
+  // --- MODE 1: LIVE VIEW ---
+  // If we are at the bottom, we're viewing the live chapter. Always show the
+  // latest available image that the server gave us on load.
   if (isAtBottom) {
-    renderLatestImage(latestImageUrlOnLoad);
-    return;
+    renderImage(latestImageUrlOnLoad, isImageGenerating);
+    return; // Done.
   }
 
+  // --- MODE 2: HISTORY VIEW ---
+  // If we are scrolled up, find the image for the chapter in the viewport.
   const allWords = Array.from(el.querySelectorAll('.word'));
   if (allWords.length === 0) return;
 
-  // --- 1. Find all words currently visible in the container ---
   const containerRect = el.getBoundingClientRect();
   const visibleWords = allWords.filter(word => {
     const wordRect = word.getBoundingClientRect();
     return wordRect.top < containerRect.bottom && wordRect.bottom > containerRect.top;
   });
-
   if (visibleWords.length === 0) return;
 
-  // --- 2. Tally "votes" for each chapter based on how many of its words are visible ---
+  // Tally "votes" for which chapter's image should be displayed.
   const chapterVotes = new Map();
-  let liveWordCount = 0;
-  const lastImageChapter = imageTimeline.length > 0 ? imageTimeline[imageTimeline.length - 1] : null;
-
   visibleWords.forEach(word => {
     const timestamp = parseInt(word.dataset.ts, 10);
-    // Find which historical image chapter this word belongs to.
     const timelineEntry = imageTimeline.find(entry =>
       timestamp >= entry.start_ts && timestamp <= entry.end_ts
     );
-
     if (timelineEntry) {
-      // If it belongs to a chapter with an image, add a vote for that image.
       chapterVotes.set(timelineEntry.imageUrl, (chapterVotes.get(timelineEntry.imageUrl) || 0) + 1);
-    } else if (lastImageChapter && timestamp > lastImageChapter.end_ts) {
-      // If the word is newer than any known image, it's a "live" word.
-      liveWordCount++;
     }
-    // Words from chapters without images are correctly ignored here.
   });
 
-  // --- 3. Determine the historical chapter with the most visible words ---
+  // Find the image URL that has the most visible words.
   let winningImageUrl = null;
   let maxVotes = 0;
   for (const [imageUrl, votes] of chapterVotes.entries()) {
     if (votes > maxVotes) {
       maxVotes = votes;
-      winningImageUrl = imageUrl; // This assigns the URL of the winning historical image.
+      winningImageUrl = imageUrl;
     }
   }
 
-  // --- 4. Decide which image to display ---
-  let finalImageUrl = null;
-  if (liveWordCount > maxVotes) {
-    // If there are more live words visible than words from any single historical chapter,
-    // show the most recent "live" image.
-    finalImageUrl = latestImageUrlOnLoad;
-  } else {
-    // Otherwise, show the winning historical image.
-    // If no image chapter had visible words, winningImageUrl will be null.
-    finalImageUrl = winningImageUrl;
-  }
-
-  // --- 5. Render the final result ---
-  // If finalImageUrl is null, this function will correctly show the placeholder text.
-  renderLatestImage(finalImageUrl);
+  // Render the winner. If no chapter with an image is visible, winningImageUrl
+  // will be null, and renderImage will correctly show the placeholder.
+  renderImage(winningImageUrl, isImageGenerating);
 }
 
 /**

@@ -89,8 +89,6 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // These variables hold the in-memory state of the application.
 
 let currentText = [];               // An array holding the most recent winning words.
-let currentWritingStyle = null;     // The current writing style
-let currentTitle = null;            // The current title
 let liveWords = new Map();          // A map of currently submitted words for the active round.
 let nextTickTimestamp = computeNextRoundEndTime(); // The timestamp for when the current round ends.
 let botContext = [];                // The context buffer for the Gemini bot.
@@ -103,6 +101,8 @@ let botIsRunning = false;           // A lock to prevent the bot from running mu
 let botHasSubmitted = false;        // A lock to prevent the bot from submitting multiple words in the same round.
 let botIsConcluding = false;        // A lock to prevent the bot from running multiple times when concluding.
 let submissionIsLocked = false;     // Prevents users from writing during the sealing process until the bot has finished generating a title
+let liveChapterId = null;           // Stores the MongoDB _id of the current live chapter document.
+let isGeneratingImage = false;      // Tracks if an image is currently being generated.
 let mustSeal = false;
 const TARGET_CHAPTER_WORD_COUNT = Math.floor(((constants.CHAPTER_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
 
@@ -121,7 +121,7 @@ const client = new MongoClient(DATABASE_URL, {
 });
 
 // These variables will be assigned after the database connection is established.
-let usersCollection, wordsCollection, chaptersCollection, unsealedChapterCollection;
+let usersCollection, wordsCollection, chaptersCollection;
 
 /**
  * Establishes a connection to the MongoDB Atlas cluster and initializes
@@ -134,7 +134,6 @@ async function connectToDatabase() {
     usersCollection = db.collection('users');
     wordsCollection = db.collection('words');
     chaptersCollection = db.collection('chapters');
-    unsealedChapterCollection = db.collection('unsealedChapters');
     logger.info("[db] Successfully connected to MongoDB Atlas!");
   } catch (err) {
     logger.error({ err }, "[db] Failed to connect to MongoDB");
@@ -317,23 +316,36 @@ async function triggerBot() {
 
     try {
       // 1. Await all necessary data from the database.
-      const [currentChapterWords, totalChapterCount, recentChapters] = await Promise.all([
-        wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray(),
-        chaptersCollection.countDocuments(),
-        chaptersCollection.find({}, { projection: { title: 1 } }).sort({ ts: -1 }).limit(50).toArray(),
+      let liveChapter = null;
+      let currentChapterWords = [];
+      if (liveChapterId) {
+          liveChapter = await chaptersCollection.findOne({ _id: liveChapterId });
+          currentChapterWords = await wordsCollection.find({ chapterId: liveChapterId }).sort({ ts: 1 }).toArray();
+      }
+
+      const sealedChapterQuery = { hash: { $ne: null, $exists: true } };
+
+      const [totalChapterCount, recentChapters] = await Promise.all([
+        chaptersCollection.countDocuments(sealedChapterQuery),
+        chaptersCollection.find(sealedChapterQuery, { projection: { title: 1 } }).sort({ ts: -1 }).limit(50).toArray(),
       ]);
 
       // 2. Assemble the complete state object to pass to the bot.
       const recentTitles = recentChapters.map(chapter => chapter.title).filter(Boolean);
       const targetWordCount = calculateWordsUntilNextSeal(currentChapterWords);
-      const botState = {
+      const styleName = liveChapter ? liveChapter.style : null;
+      const fullWritingStyleObject = styleName
+        ? constants.WRITING_STYLES.find(s => s.name === styleName)
+        : null;
+
+    const botState = {
         liveWords,
         botContext,
         botQueue,
         broadcastLiveFeed,
         getCompositeKey,
-        currentTitle,
-        currentWritingStyle,
+        currentTitle: liveChapter ? liveChapter.title : null,
+        currentWritingStyle: fullWritingStyleObject,
         currentChapterWords,
         totalChapterCount,
         botMustWriteTitle,
@@ -351,8 +363,6 @@ async function triggerBot() {
       botMustWriteTitle = result.botMustWriteTitle;
       botMustStartChapter = result.botMustStartChapter;
       botMustContinueChapter = result.botMustContinueChapter;
-      currentTitle = result.currentTitle;
-      currentWritingStyle = result.currentWritingStyle;
 
       // Set the submission flag only if the bot reports it was successful.
       if (result.submissionMade) {
@@ -406,35 +416,42 @@ async function endRoundAndElectWinner() {
     const winnerRow = {
       ts: Date.now(), word: winner.word, styles: winner.styles, isTitle: winner.isTitle || false,
       username: winner.username, pct: totalVotes > 0 ? (winner.count / totalVotes) * 100 : 0,
-      count: winner.count, total: totalVotes, chapterId: null
+      count: winner.count, total: totalVotes, chapterId: liveChapterId
     };
 
     // 6. Save to database and update in-memory state.
     try {
+      // If the winning word is a title, create the new chapter document first.
+      if (winner.isTitle) {
+          // A new chapter begins. We find the style chosen by the bot for this title.
+          const style = constants.WRITING_STYLES.find(s => s.name === winner.writingStyle) || { name: 'User-Initiated' };
+
+          const newChapterDoc = {
+              ts: winnerRow.ts,
+              title: winner.word,
+              style: style.name, // Store the style name
+              hash: null,
+              imageUrl: null,
+              text: '',
+              words: []
+          };
+          const insertedChapter = await chaptersCollection.insertOne(newChapterDoc);
+          liveChapterId = insertedChapter.insertedId;
+          logger.info({ chapterId: liveChapterId, title: newChapterDoc.title }, '[db] New live chapter created.');
+      }
+
+      // All words now get the current live chapter's ID.
+      winnerRow.chapterId = liveChapterId;
+      if (!liveChapterId) {
+          logger.error({ winner: winner.word }, "[db] CRITICAL: liveChapterId is null. Cannot save word.");
+          return; // Prevent saving a word without a chapter.
+      }
+
       await wordsCollection.insertOne(winnerRow);
       currentText.push(winnerRow);
       if (currentText.length > constants.CURRENT_TEXT_LENGTH) currentText.shift();
       botContext = pushBotContext(winner.word, botContext);
       io.emit('currentTextUpdated', currentText);
-
-      // --- Save Live Chapter State ---
-      // After every word is added, we snapshot the entire live chapter.
-      const currentChapterWords = await wordsCollection.find({ chapterId: null }).sort({ ts: 1 }).toArray();
-      if (currentChapterWords.length > 0) {
-        const liveChapterState = {
-          words: currentChapterWords,
-          botQueue: botQueue,
-          currentTitle: currentTitle,
-          currentWritingStyle: currentWritingStyle,
-          savedAt: new Date()
-        };
-        await unsealedChapterCollection.updateOne(
-          { _id: 'live_chapter_backup' },
-          { $set: liveChapterState },
-          { upsert: true } // Creates the document if it doesn't exist
-        );
-        logger.info('[state] Live chapter state saved to backup.');
-      }
     } catch (err) {
       logger.error({ err }, "[db] Failed to save word to database");
     }
@@ -461,7 +478,7 @@ async function endRoundAndElectWinner() {
     // Clear the backup upon sealing a chapter
     await unsealedChapterCollection.deleteOne({ _id: 'live_chapter_backup' });
     botQueue = [];
-    await sealNewChapter();
+    await finalizeAndSealChapter();
     return;
   }
 
@@ -473,51 +490,46 @@ async function endRoundAndElectWinner() {
 }
 
 /**
- * @summary Archives un-chaptered words into a new, permanent chapter document with a generated image.
- * @description This function runs on a schedule. It uses a two-phase process to atomically
- * claim unsealed words before processing them, preventing race conditions with the history API.
+ * @summary Finalizes the current live chapter, sealing it with a hash and image.
+ * @description This function is now an UPDATE operation. It finds the chapter marked as
+ * unsealed, calculates its final content and hash, generates an image, and updates
+ * the document in the database to mark it as sealed.
  */
-async function sealNewChapter() {
-  let claimedWordsCount = 0;
+async function finalizeAndSealChapter() {
+  if (!liveChapterId) {
+    logger.warn('[history] Seal triggered, but there is no live chapter to seal. Aborting.');
+    // Reset bot state to ensure it starts a new chapter next time.
+    botMustWriteTitle = true;
+    botMustStartChapter = false;
+    botMustContinueChapter = false;
+    await triggerBot();
+    return;
+  }
+
   submissionIsLocked = true;
-  let sealSucceeded = false;
-  let wordsToChapter = [];
-  logger.info('[history] Sealing new chapter: User submissions are now locked.');
+  isGeneratingImage = true;
+  logger.info('[history] Finalizing chapter: User submissions are now locked.');
 
   try {
     io.emit('imageGenerationStarted');
 
-    // ------------------------------------------------------------------------
-    // PHASE 2: FETCH PENDING WORDS (ordered)
-    // Grab all words that haven’t yet been sealed (chapterId: null).
-    // ------------------------------------------------------------------------
-    wordsToChapter = await wordsCollection
-      .find({ chapterId: null })
+    // --- 1. FETCH THE LIVE CHAPTER AND ITS WORDS ---
+    const chapterToSeal = await chaptersCollection.findOne({ _id: liveChapterId });
+    const wordsToChapter = await wordsCollection
+      .find({ chapterId: liveChapterId })
       .sort({ ts: 1 })
       .toArray();
 
-    claimedWordsCount = wordsToChapter.length;
-    if (claimedWordsCount === 0) {
-      logger.warn('[history] Scheduled seal triggered, but no words were written. Forcing new chapter.');
-      // Even if we skip the seal, we must reset the bot's state to start a new chapter.
-      botIsConcluding = false;
-      botMustWriteTitle = true;
-      botMustStartChapter = false;
-      botMustContinueChapter = false;
-      botQueue = [];
-      currentTitle = null;
-      currentWritingStyle = null;
-
-      // Trigger the bot immediately to generate the new title.
-      await triggerBot();
-
-      // The submission lock is handled by the bot flow now, so we just return.
+    if (!chapterToSeal || wordsToChapter.length === 0) {
+      logger.warn('[history] Live chapter is empty. Forcing new chapter start.');
+      if (chapterToSeal) {
+        await chaptersCollection.deleteOne({ _id: liveChapterId }); // Clean up empty chapter
+      }
+      // The rest of the state reset is in the `finally` block.
       return;
     }
 
-    // ------------------------------------------------------------------------
-    // PHASE 3: BUILD CHAPTER METADATA (hash, text, title)
-    // ------------------------------------------------------------------------
+    // --- 2. BUILD CHAPTER METADATA (hash, text) ---
     const dataToHash = JSON.stringify(wordsToChapter);
     const hash = crypto.createHash('sha256').update(dataToHash).digest('hex');
 
@@ -526,104 +538,68 @@ async function sealNewChapter() {
       return acc + sep + w.word;
     }, '').trim();
 
-    // ------------------------------------------------------------------------
-    // PHASE 4: OPTIONAL IMAGE GENERATION & CROSS-POST
-    // ------------------------------------------------------------------------
+    // --- 3. GENERATE IMAGE & CROSS-POST ---
     let imageUrl = null;
-    //if (isProduction) {
-      imageUrl = await generateAndUploadImage(chapterText, currentTitle, isProduction);
-    //}
-
-    const newChapter = {
-      ts: wordsToChapter[0].ts, // timestamp of first word
-      hash,
-      title: currentTitle,
-      text: chapterText,
-      words: wordsToChapter,
-      imageUrl,
-      style: currentWritingStyle ? currentWritingStyle.name : 'User-Initiated',
-    };
-
+    const shareableUrl = `https://www.sntnz.com/chapter/${hash}`;
     if (isProduction) {
-      const shareableUrl = `https://www.sntnz.com/chapter/${newChapter.hash}`;
-      await postEverywhere(newChapter.text, shareableUrl, newChapter.imageUrl);
+      imageUrl = await generateAndUploadImage(chapterText, chapterToSeal.title, isProduction);
+      await postEverywhere(chapterText, shareableUrl, imageUrl);
     }
 
-    // ------------------------------------------------------------------------
-    // PHASE 5: SAVE CHAPTER & FINALIZE WORDS
-    // ------------------------------------------------------------------------
-    const insertedChapter = await chaptersCollection.insertOne(newChapter);
-    const newChapterId = insertedChapter.insertedId;
-
-    await wordsCollection.updateMany(
-      { _id: { $in: wordsToChapter.map(w => w._id) } },
-      { $set: { chapterId: newChapterId } }
+    // --- 4. FINALIZE THE CHAPTER IN THE DATABASE (UPDATE) ---
+    await chaptersCollection.updateOne(
+      { _id: liveChapterId },
+      {
+        $set: {
+          hash,
+          text: chapterText,
+          words: wordsToChapter, // Embed the final word array
+          imageUrl,
+        },
+      }
     );
 
-    if (newChapter.imageUrl) {
-      io.emit('newImageSealed', { imageUrl: newChapter.imageUrl });
+    if (imageUrl) {
+      io.emit('newImageSealed', { imageUrl: imageUrl });
     }
 
     logger.info({ chapterHash: hash }, '[history] Successfully sealed chapter');
 
-    // ------------------------------------------------------------------------
-    // PHASE 6: SET GLOBAL VARS
-    // ------------------------------------------------------------------------
+  } catch (err) {
+    logger.error({ err }, '[history] Error finalizing chapter');
+  } finally {
+    // --- 5. RESET STATE FOR THE NEXT CHAPTER ---
+    isGeneratingImage = false;
     botIsConcluding = false;
-    botMustWriteTitle = true;
+    botMustWriteTitle = true; // Signal the bot to create the next title
     botMustStartChapter = false;
     botMustContinueChapter = false;
     botQueue = [];
-    currentTitle = null;
-    currentWritingStyle = null;
+    liveChapterId = null; // Clear the old live chapter ID
 
-    // ------------------------------------------------------------------------
-    // PHASE 7: TRIGGER BOT FOR NEXT CHAPTER
-    // ------------------------------------------------------------------------
+    // --- 6. TRIGGER BOT & UNLOCK SUBMISSIONS ---
     logger.info('[history] Triggering bot for new chapter title.');
-    await triggerBot();
-    sealSucceeded = true;
-  } catch (err) {
-    // ------------------------------------------------------------------------
-    // ERROR HANDLING: ROLLBACK CLAIMS
-    // ------------------------------------------------------------------------
-    logger.error({ err }, '[history] Error sealing new chapter');
-
-    if (claimedWordsCount > 0) {
-      // This part of your error handling seems incorrect.
-      // It should revert the claimed words, not just any words with chapterId: null.
-      // A better implementation would be to use the IDs from `wordsToChapter`.
-      const wordIdsToRevert = wordsToChapter.map(w => w._id);
-      await wordsCollection.updateMany(
-        { _id: { $in: wordIdsToRevert } },
-        { $unset: { chapterId: "" } } // Use $unset for a cleaner rollback
-      );
-      logger.warn(`[history] Rolled back ${claimedWordsCount} words from processing state.`);
-    }
-  } finally {
-    // If the seal did NOT succeed, we release the lock so users can continue writing.
-    if (!sealSucceeded) {
-      submissionIsLocked = false;
-      logger.warn('[history] Seal process failed. Releasing submission lock.');
-    }
+    await triggerBot(); // This will generate the title for the *next* chapter
+    submissionIsLocked = false;
+    logger.info('[history] Seal process complete. User submissions unlocked.');
   }
 }
 
 /**
- * Loads the most recent words from the database on server startup
- * to populate the in-memory `currentText` array and restore bot state.
+ * Loads the state of the live (unsealed) chapter from the database on server startup.
  */
 async function loadInitialTextFromHistory() {
   logger.info('[history] Attempting to restore live state from database...');
 
   try {
-    // Atomically find and delete the backup. This prevents race conditions
-    // if the server restarts multiple times in quick succession.
-    const backup = await unsealedChapterCollection.findOneAndDelete({ _id: 'live_chapter_backup' });
+    // Find the one chapter that was left unsealed.
+    const liveChapter = await chaptersCollection.findOne({ hash: null });
 
-    if (backup && backup.words && backup.words.length > 0) {
-      const restoredWords = backup.words;
-      logger.info({ restoredWords: restoredWords }, `[history] Restoring ${restoredWords.length} unsealed words from backup.`);
+    if (liveChapter) {
+      liveChapterId = liveChapter._id;
+      const restoredWords = await wordsCollection.find({ chapterId: liveChapterId }).sort({ ts: 1 }).toArray();
+
+      logger.info(`[history] Restoring ${restoredWords.length} unsealed words for chapter '${liveChapter.title}'.`);
 
       // 1. Restore the core story and bot context
       currentText = restoredWords.slice(-constants.CURRENT_TEXT_LENGTH);
@@ -631,11 +607,8 @@ async function loadInitialTextFromHistory() {
         botContext = pushBotContext(w.word, botContext);
       });
 
-      // 2. Restore the bot's brain
-      botQueue = backup.botQueue || [];
-      currentTitle = backup.currentTitle || null;
-      currentWritingStyle = backup.currentWritingStyle || null;
-      logger.info({ queueSize: botQueue.length, title: currentTitle }, '[history] Bot state restored.');
+      // 2. Restore the bot's queue if it was saved in the chapter document (optional feature)
+      botQueue = liveChapter.botQueue || [];
 
       // 3. Set the bot's next action based on the restored state
       const hasTitle = restoredWords.some(w => w.isTitle);
@@ -653,13 +626,12 @@ async function loadInitialTextFromHistory() {
       }, '[history] Bot action flags set.');
 
     } else {
-      logger.info('[history] No live chapter backup found. Starting fresh.');
+      logger.info('[history] No unsealed chapter found. Starting fresh.');
       botMustWriteTitle = true; // No history, so the bot must start a new story.
     }
   } catch (error) {
     logger.error({ err: error }, '[history] Failed to load initial state');
-    // Even on failure, ensure the bot knows it needs to start over.
-    botMustWriteTitle = true;
+    botMustWriteTitle = true; // On failure, ensure the bot starts over.
   }
 }
 
@@ -831,7 +803,7 @@ app.get('/api/history/before', async (req, res) => {
       return res.status(400).json({ error: 'Invalid timestamp provided.' });
     }
 
-    const olderChapters = await chaptersCollection.find({ ts: { $lt: oldestTimestamp } })
+    const olderChapters = await chaptersCollection.find({ ts: { $lt: oldestTimestamp }, hash: { $ne: null } })
       .sort({ ts: -1, _id: -1 })
       .limit(limit)
       .toArray();
@@ -856,29 +828,27 @@ app.get('/api/history/latest', async (req, res) => {
     const startOfDay = new Date(`${today}T00:00:00.000Z`);
     const endOfDay = new Date(`${today}T23:59:59.999Z`);
 
-    // Get sealed chapters for today
-    const sealedChapters = await chaptersCollection.find({
+    // Get all chapters for today, sealed or not
+    const chaptersForToday = await chaptersCollection.find({
       ts: { $gte: startOfDay.getTime(), $lte: endOfDay.getTime() },
     }).sort({ ts: 1 }).toArray();
 
-    // Get ALL unsealed words to form the live chapter
-    const unsealedWords = await wordsCollection.find({
-      chapterId: null,
-    }).sort({ ts: 1 }).toArray();
+    // The live chapter might not be fully populated with its `words` array yet.
+    // We need to fetch them manually for the response.
+    const populatedChapters = await Promise.all(chaptersForToday.map(async (chapter) => {
+      if (!chapter.hash) {
+        const words = await wordsCollection.find({ chapterId: chapter._id }).sort({ ts: 1 }).toArray();
+        return {
+          ...chapter,
+          words,
+          hash: 'Pending...', // Override hash for client display
+          isLive: true,
+        };
+      }
+      return chapter;
+    }));
 
-    const allChapters = [...sealedChapters];
-    if (unsealedWords.length > 0) {
-      allChapters.push({
-        ts: unsealedWords[0].ts,
-        hash: 'Pending...',
-        text: unsealedWords.map(w => w.word).join(' '),
-        words: unsealedWords,
-        isLive: true,
-      });
-    }
-
-    // Return both the chapters and the date used
-    res.json({ date: today, chapters: allChapters });
+    res.json({ date: today, chapters: populatedChapters });
 
   } catch (error) {
     console.error(`[api] Error fetching latest history:`, error);
@@ -893,7 +863,7 @@ app.get('/api/history/latest', async (req, res) => {
  */
 app.get('/api/history/dates', async (req, res) => {
   try {
-    // This query finds all chapters, groups them by their UTC date, and returns the unique dates.
+    // This query now correctly includes the date of the unsealed chapter.
     const dates = await chaptersCollection.aggregate([
       {
         $group: {
@@ -903,7 +873,6 @@ app.get('/api/history/dates', async (req, res) => {
       { $sort: { _id: -1 } } // Sort dates newest to oldest
     ]).toArray();
 
-    // Extract just the date strings from the result
     const dateStrings = dates.map(d => d._id);
     res.json(dateStrings);
   } catch (err) {
@@ -930,40 +899,29 @@ app.get('/api/history/:date', async (req, res) => {
     const startOfDay = new Date(`${date}T00:00:00.000Z`);
     const endOfDay = new Date(`${date}T23:59:59.999Z`);
 
-    // Query 1: Get all permanently sealed chapters for the given date.
-    const sealedChapters = await chaptersCollection.find({
+    // Query for all chapters on the given date, sealed or not.
+    const chaptersForDate = await chaptersCollection.find({
       ts: {
         $gte: startOfDay.getTime(),
         $lte: endOfDay.getTime(),
       },
     }).sort({ ts: 1 }).toArray();
 
-    let allChapters = [...sealedChapters];
-    let unsealedWords = [];
+    // For any unsealed chapter, fetch its words and format it as a "live" chapter for the client.
+    const populatedChapters = await Promise.all(chaptersForDate.map(async (chapter) => {
+      if (!chapter.hash) {
+        const words = await wordsCollection.find({ chapterId: chapter._id }).sort({ ts: 1 }).toArray();
+        return {
+          ...chapter,
+          words,
+          hash: 'Pending...',
+          isLive: true,
+        };
+      }
+      return chapter;
+    }));
 
-    // Check if the requested date is the server's current UTC date.
-    const serverTodayUTC = new Date().toISOString().split('T')[0];
-
-    // If it's today, we fetch ALL unsealed words to show the live chapter.
-    if (date === serverTodayUTC) {
-      unsealedWords = await wordsCollection.find({
-        chapterId: null,
-      }).sort({ ts: 1 }).toArray();
-    }
-
-    // If there are unsealed words, package them into a temporary "live" chapter.
-    if (unsealedWords.length > 0) {
-      const liveChapter = {
-        ts: unsealedWords[0].ts, // Timestamp of the first word in the series
-        hash: 'Pending...',      // A placeholder hash
-        text: unsealedWords.map(w => w.word).join(' '),
-        words: unsealedWords,
-        isLive: true           // A flag for the front-end to identify this chapter
-      };
-      allChapters.push(liveChapter);
-    }
-
-    res.json(allChapters);
+    res.json(populatedChapters);
   } catch (error) {
     console.error(`[api] Error reading history for ${date}:`, error);
     res.status(500).json({ error: 'Failed to retrieve history.' });
@@ -1067,21 +1025,48 @@ io.on('connection', async (socket) => {
   const user = socket.request.user;
   const userId = user ? user.googleId : socket.id;
 
-  // Send the initial state to the newly connected client.
-  const recentWords = await wordsCollection.find().sort({ ts: -1 }).limit(constants.CURRENT_TEXT_LENGTH).toArray();
-  const initialChapters = [{
-      words: recentWords.reverse(),
-      // We can use the timestamp of the last word as a stand-in for the chapter's timestamp
-      ts: recentWords.length > 0 ? recentWords[recentWords.length - 1].ts : Date.now(),
-  }];
-  const latestChapterWithImage = await chaptersCollection.findOne({ imageUrl: { $exists: true, $ne: null } }, { sort: { ts: -1 } });
+  try {
+    // 1. Get the N most recent words to establish the initial view.
+    const recentWords = await wordsCollection.find().sort({ ts: -1 }).limit(constants.CURRENT_TEXT_LENGTH).toArray();
+    let initialImageUrl = null;
 
-  socket.emit('initialState', {
-    initialChapters,
-    liveSubmissions: getLiveFeedState(userId),
-    nextTickTimestamp,
-    latestImageUrl: latestChapterWithImage?.imageUrl || null
-  });
+    if (recentWords.length > 0) {
+      // 2. Get the timestamp of the newest word to set our context in time.
+      const newestWord = recentWords[0];
+
+      // 3. Find the most recent chapter at or before this timestamp that has an image.
+      const lastChapterWithImage = await chaptersCollection.findOne(
+        {
+          ts: { $lte: newestWord.ts }, // Must be from the current time or older
+          hash: { $ne: null },         // Must be sealed
+          imageUrl: { $ne: null, $exists: true } // ** TYPO FIX: aull -> null **
+        },
+        { sort: { ts: -1 } } // Get the most recent one
+      );
+      initialImageUrl = lastChapterWithImage?.imageUrl || null;
+    }
+
+    const initialChapters = [{ words: recentWords.reverse() }];
+
+    socket.emit('initialState', {
+      initialChapters,
+      liveSubmissions: getLiveFeedState(userId),
+      nextTickTimestamp,
+      latestImageUrl: initialImageUrl,
+      isGeneratingImage: isGeneratingImage
+    });
+
+  } catch (err) {
+    logger.error({ err }, "[socket] Failed to prepare and send initialState");
+    // Send a fallback state to the client so it doesn't just hang.
+    socket.emit('initialState', {
+      initialChapters: [{ words: [] }],
+      liveSubmissions: [],
+      nextTickTimestamp: computeNextRoundEndTime(),
+      latestImageUrl: null,
+      isGeneratingImage: false
+    });
+  }
 
   // Handles a client joining the history room for real-time updates.
   socket.on('joinHistoryRoom', () => socket.join('history-room'));

@@ -211,12 +211,14 @@ export function addImageModalEvents(triggerContainer, imageModal, fullSizeImage)
 
   const SCALABLE = 'width=device-width, initial-scale=1, maximum-scale=10, user-scalable=yes';
   const LOCKED_1X = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+  let scrollY = 0;
 
   const openModal = (e) => {
     const clickedImage = e.target.closest('img');
     if (!clickedImage) return;
     e.preventDefault();
 
+    scrollY = window.scrollY || window.pageYOffset;
     fullSizeImage.src = clickedImage.src;
     imageModal.classList.add('visible');
     bodyEl.classList.add('modal-open');
@@ -237,7 +239,7 @@ export function addImageModalEvents(triggerContainer, imageModal, fullSizeImage)
     }, 60);
 
     // --- Scroll back to top if you want ---
-    window.scrollTo(0, 0);
+    window.scrollTo(0, scrollY);
   };
 
   triggerContainer.addEventListener('click', openModal);
