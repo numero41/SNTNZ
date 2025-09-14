@@ -535,7 +535,7 @@ async function finalizeAndSealChapter() {
     let imageUrl = null;
     const shareableUrl = `https://www.sntnz.com/chapter/${hash}`;
     if (isProduction) {
-      imageUrl = await generateAndUploadImage(chapterText, chapterToSeal.title, isProduction);
+      imageUrl = await generateAndUploadImage(chapterText, chapterToSeal.title, hash, isProduction);
       await postEverywhere(chapterText, shareableUrl, imageUrl);
     }
 

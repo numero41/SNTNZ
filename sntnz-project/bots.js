@@ -454,7 +454,7 @@ async function runBotSubmission(state) {
  * @param {boolean} isProduction - Flag to determine which GCS folder to use.
  * @returns {Promise<string|null>} The public URL of the uploaded image, or null on failure.
  */
-async function generateAndUploadImage(text, chapterTitle, isProduction) {
+async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduction) {
   try {
     logger.info('[image] Starting image generation process...');
 
@@ -574,7 +574,7 @@ async function generateAndUploadImage(text, chapterTitle, isProduction) {
 
     // --- Step 6: Upload Image to Google Cloud Storage ---
     const folder = isProduction ? 'images' : 'dev-images';
-    const fileName = `${folder}/sntnz-chapter-${Date.now()}.png`;
+    const fileName = `${folder}/sntnz-chapter-${chapterHash}.png`;
     const file = bucket.file(fileName);
 
     await file.save(watermarkedImageBuffer, {
