@@ -475,8 +475,6 @@ async function endRoundAndElectWinner() {
   // After processing the winner, check if a seal is needed.
   if (mustSeal) {
     mustSeal = false;
-    // Clear the backup upon sealing a chapter
-    await unsealedChapterCollection.deleteOne({ _id: 'live_chapter_backup' });
     botQueue = [];
     await finalizeAndSealChapter();
     return;
@@ -1039,7 +1037,7 @@ io.on('connection', async (socket) => {
         {
           ts: { $lte: newestWord.ts }, // Must be from the current time or older
           hash: { $ne: null },         // Must be sealed
-          imageUrl: { $ne: null, $exists: true } // ** TYPO FIX: aull -> null **
+          imageUrl: { $ne: null, $exists: true }
         },
         { sort: { ts: -1 } } // Get the most recent one
       );
