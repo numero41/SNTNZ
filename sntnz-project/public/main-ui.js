@@ -471,14 +471,6 @@ export function updateScrollEffects() {
 
   // === IMAGE LOGIC
 
-  // --- MODE 1: LIVE VIEW ---
-  // If we are at the bottom, we're viewing the live chapter. Always show the
-  // latest available image that the server gave us on load.
-  if (isAtBottom) {
-    renderImage(latestImageUrlOnLoad, isImageGenerating);
-    return; // Done.
-  }
-
   // --- MODE 2: HISTORY VIEW ---
   // If we are scrolled up, find the image for the chapter in the viewport.
   const allWords = Array.from(el.querySelectorAll('.word'));
@@ -504,7 +496,7 @@ export function updateScrollEffects() {
   });
 
   // Find the image URL that has the most visible words.
-  let winningImageUrl = null;
+  let winningImageUrl = latestImageUrlOnLoad;
   let maxVotes = 0;
   for (const [imageUrl, votes] of chapterVotes.entries()) {
     if (votes > maxVotes) {
