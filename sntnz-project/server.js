@@ -1024,27 +1024,51 @@ io.on('connection', async (socket) => {
   const userId = user ? user.googleId : socket.id;
 
   try {
-    // 1. Get the N most recent words to establish the initial view.
-    const recentWords = await wordsCollection.find().sort({ ts: -1 }).limit(constants.CURRENT_TEXT_LENGTH).toArray();
+    const initialChapters = [];
     let initialImageUrl = null;
 
-    if (recentWords.length > 0) {
-      // 2. Get the timestamp of the newest word to set our context in time.
-      const newestWord = recentWords[0];
+    // 1. Find the current live (unsealed) chapter.
+    const liveChapter = await chaptersCollection.findOne({ hash: null });
 
-      // 3. Find the most recent chapter at or before this timestamp that has an image.
+    // 2. Find the most recent sealed chapter to show before the live one.
+    const previousSealedChapter = await chaptersCollection.findOne(
+      { hash: { $ne: null } },
+      { sort: { ts: -1 } }
+    );
+
+    // 3. Add the previous sealed chapter to our payload if it exists.
+    // The 'words' array is already embedded in sealed chapters.
+    if (previousSealedChapter) {
+      initialChapters.push(previousSealedChapter);
+      // This will be the default image unless a newer one is found.
+      initialImageUrl = previousSealedChapter.imageUrl || null;
+    }
+
+    // 4. If a live chapter exists, fetch all its words and add it.
+    if (liveChapter) {
+      const liveChapterWords = await wordsCollection
+        .find({ chapterId: liveChapter._id })
+        .sort({ ts: 1 })
+        .toArray();
+
+      // The live chapter doesn't have its 'words' array populated yet, so we add it.
+      initialChapters.push({
+        ...liveChapter,
+        words: liveChapterWords,
+        isLive: true,
+      });
+
+      // The latest image could be from the chapter *before* the live one.
+      // So, we find the most recent sealed chapter with an image overall.
       const lastChapterWithImage = await chaptersCollection.findOne(
         {
-          ts: { $lte: newestWord.ts }, // Must be from the current time or older
-          hash: { $ne: null },         // Must be sealed
+          hash: { $ne: null },
           imageUrl: { $ne: null, $exists: true }
         },
-        { sort: { ts: -1 } } // Get the most recent one
+        { sort: { ts: -1 } }
       );
       initialImageUrl = lastChapterWithImage?.imageUrl || null;
     }
-
-    const initialChapters = [{ words: recentWords.reverse() }];
 
     socket.emit('initialState', {
       initialChapters,

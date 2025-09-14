@@ -457,7 +457,7 @@ export function showFeedback(message, type = 'info') {
 export function updateScrollEffects() {
   const el = currentTextContainer;
   if (!el) return;
-  const buffer = 5; // A small buffer for detecting scroll position
+  const buffer = 50; // A small buffer for detecting scroll position
 
   // --- Manage infinite scroll and UI fades ---
   if (el.scrollTop < 100 && !isBooting) {
