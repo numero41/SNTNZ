@@ -283,17 +283,12 @@ function calculateMinutesUntilNextSeal(cronSchedule) {
 /**
  * Calculates how many words the bot should write to complete a chapter
  * precisely at the next scheduled seal time.
- * @param {Array} currentChapterWords - An array of word objects already in the chapter.
  * @returns {number} The number of words the bot should generate.
  */
-function calculateWordsUntilNextSeal(currentChapterWords = []) {
+function calculateWordsUntilNextSeal() {
   // First, calculate the total target size of the chapter based on time.
   const minutesRemaining = calculateMinutesUntilNextSeal(constants.HISTORY_CHAPTER_SCHEDULE_CRON);
-  const totalTargetSize = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.9);
-
-  // Then, subtract the words already written to find the remainder.
-  const wordsWritten = currentChapterWords.length;
-  const targetWordCount = totalTargetSize - wordsWritten;
+  const targetWordCount = Math.floor(((minutesRemaining * 60) / constants.ROUND_DURATION_SECONDS) * 0.9);
 
   // Ensure the bot always writes at least a couple of words.
   return Math.max(2, targetWordCount);
@@ -332,7 +327,7 @@ async function triggerBot() {
 
       // 2. Assemble the complete state object to pass to the bot.
       const recentTitles = recentChapters.map(chapter => chapter.title).filter(Boolean);
-      const targetWordCount = calculateWordsUntilNextSeal(currentChapterWords);
+      const targetWordCount = calculateWordsUntilNextSeal();
       const styleName = liveChapter ? liveChapter.style : null;
       const fullWritingStyleObject = styleName
         ? constants.WRITING_STYLES.find(s => s.name === styleName)
