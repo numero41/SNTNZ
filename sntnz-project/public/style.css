@@ -419,6 +419,25 @@ body {
   display: none;
 }
 
+#latestImageContainer {
+  position: relative;
+}
+
+#latestImageContainer img {
+  width: 100%;
+  height: auto;
+  display: block;
+  opacity: 1;
+  transition: opacity 1.0s ease-in-out;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#latestImageContainer img.image-loading {
+  opacity: 0;
+}
+
 /* Placeholder text when no image is available */
 .image-placeholder-text,
 .image-generating-text {

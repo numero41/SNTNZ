@@ -201,114 +201,107 @@ async function generateNewTitle(totalChapterCount, recentTitles = [], currentWri
 }
 
 /**
- * Generates the main story text for a chapter that already has a title.
- * @param {number} targetWordCount - The approximate number of words the story should have.
- * @param {string} currentTitle - The title of the chapter to write a story for.
- * @param {object} currentWritingStyle - The writing style object to guide the AI.
- * @returns {Promise<object[]>} A promise that resolves to a queue of word objects for the story.
+ * Generates or continues a story chapter using a largely shared prompt and logic.
+ * @param {object} args - The arguments for the function.
+ * @param {boolean} args.isContinuing - If true, continues a story. If false, starts a new one.
+ * @param {number} args.targetWordCount - The approximate number of words to generate.
+ * @param {object} args.currentWritingStyle - The writing style object to guide the AI.
+ * @param {object} args.contextData - Contains the necessary context for the story.
+ * @param {string} [args.contextData.title] - The chapter title (if starting a new chapter).
+ * @param {string} [args.contextData.wordsSoFar] - The existing text (if continuing).
+ * @returns {Promise<object[]>} A promise that resolves to a queue of word objects.
  */
-async function generateNewChapter(targetWordCount, currentTitle, currentWritingStyle) {
-  logger.info('[bot] Starting a new chapter...');
+async function writeChapter({ isContinuing, targetWordCount, currentWritingStyle, contextData }) {
+  const logContext = isContinuing ? 'story continuation' : 'new chapter';
+  logger.info(`[bot] Preparing to write ${logContext}...`);
+
+  // --- 1. Conditionally build prompt components ---
+  const taskDescription = isContinuing
+    ? `A story is in progress, and your task is to continue it seamlessly and bring it to a satisfying conclusion. Write approximately ${targetWordCount} more words.`
+    : `You are tasked with writing a complete, self-contained story of approximately ${targetWordCount} words based on the provided chapter title. The story must have a clear beginning, middle, and a satisfying conclusion.`;
+
+  const contextBlock = isContinuing
+    ? `Existing Text:\n"${contextData.wordsSoFar}"`
+    : `Chapter Title: "${contextData.title}"`;
+
+  const criticalInstruction = isContinuing
+    ? 'CRITICAL: Your response must be ONLY the new, continuing text. Do not repeat the existing text. Do not add any explanation.'
+    : 'CRITICAL: Your entire response must be ONLY the story text. Do not repeat the title. Do not add any explanation or commentary.';
+
+  // --- 2. Assemble the final prompt ---
+  const finalPrompt = `
+    You are a master storyteller.
+    ${taskDescription}
+    Style Guide (adhere to this strictly):
+    - Style Name: ${currentWritingStyle.name}
+    - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
+    ${contextBlock}
+    ${criticalInstruction}
+  `.trim();
+
+  // --- 3. Select model and define processing options ---
+  let selectedModel = textModelPro; // Default to Pro model
+  if (isContinuing && targetWordCount <= 100) {
+    selectedModel = textModelFlash; // Use faster model for short continuations
+  }
+  const startWithNewline = !isContinuing;
   let newQueue = [];
 
+  // --- 4. Call AI, process response, and handle errors ---
   try {
     const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
     const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
-    // --- 1. Generate the story based on the title ---
-    const storyPrompt = `
-      You are a master storyteller tasked with writing a complete, self-contained story of approximately ${targetWordCount} words based on the provided chapter title.
-      The story must have a clear beginning, middle, and a satisfying conclusion.
-      Style Guide:
-      - Style Name: ${currentWritingStyle.name}
-      - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
-      Chapter Title: "${currentTitle}"
-      CRITICAL: Your entire response must be ONLY the story text. Do not repeat the title. Do not add any explanation or commentary.
-    `.trim();
-
-     const storyResult = await withTimeout(textModelPro.generateContent({
-        contents: [{ role: "user", parts: [{ text: storyPrompt }] }],
+    const result = await withTimeout(selectedModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
         generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
     }));
-    const story = (storyResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    const generatedText = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 
-    // --- 2. Process the story text into a word queue ---
-    if (story) {
-        story.split(/\s+/).filter(Boolean).forEach((word, index) => {
+    if (generatedText) {
+        generatedText.split(/\s+/).filter(Boolean).forEach((word, index) => {
             newQueue.push({
                 word: word,
                 styles: {
-                    bold: false, italic: false, underline: false,
-                    isTitle: false, newline: index === 0 // Start the story on a new line.
+                    bold: false, italic: false, underline: false, isTitle: false,
+                    newline: startWithNewline && index === 0
                 }
             });
         });
     }
 
-    logger.info({ targetWordCount: targetWordCount, wordCount: newQueue.length, story: story }, '[bot] New chapter generated and queued');
-    return newQueue; // Return immediately on success.
+    logger.info({ wordCount: newQueue.length, model: selectedModel.model }, `[bot] Successfully generated ${logContext}`);
+    return newQueue;
 
   } catch (err) {
-      logger.error({ err }, '[bot] Failed to generate new chapter');
-      return []; // Return an empty array on failure.
+      logger.error({ err }, `[bot] Failed to generate ${logContext}`);
+      return [];
   }
 }
 
 /**
- * Generates a continuation for a story started by users.
- * @param {object[]} currentChapterWords - An array of the word objects already in the current chapter.
- * @param {number} targetWordCount - The approximate number of words the bot should add.
- * @param {object} currentWritingStyle - The writing style object to guide the AI.
- * @returns {Promise<object[]>} A promise that resolves to a queue of new word objects.
+ * Generates the main story text for a new chapter by calling the shared writer function.
+ */
+async function generateNewChapter(targetWordCount, currentTitle, currentWritingStyle) {
+  return writeChapter({
+    isContinuing: false,
+    targetWordCount,
+    currentWritingStyle,
+    contextData: { title: currentTitle }
+  });
+}
+
+/**
+ * Generates a continuation for a story by calling the shared writer function.
  */
 async function continueChapter(currentChapterWords, targetWordCount, currentWritingStyle) {
-    logger.info('[bot] Continuing user-initiated story...');
-    let newQueue = [];
-
-    try {
-        const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
-        const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
-        const wordsSoFar = currentChapterWords.map(w => w.word).join(' ');
-
-        // --- 1. Select AI model and generate the continuation text ---
-        const useProModel = targetWordCount > 100;
-        const selectedModel = useProModel ? textModelPro : textModelFlash;
-        logger.info({ model: useProModel ? 'PRO' : 'LITE', targetWordCount }, '[bot] Selected model for story continuation');
-
-        const continuationPrompt = `
-            You are a master storyteller. A story is in progress, and your task is to continue it seamlessly and bring it to a satisfying conclusion.
-            Write approximately ${targetWordCount} more words.
-            Style Guide (adhere to this strictly):
-            - Style Name: ${currentWritingStyle.name}
-            - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
-            Existing Text:
-            "${wordsSoFar}"
-            CRITICAL: Your response must be ONLY the new, continuing text. Do not repeat the existing text. Do not add any explanation.
-        `.trim();
-
-        const result = await withTimeout(selectedModel.generateContent({
-            contents: [{ role: "user", parts: [{ text: continuationPrompt }] }],
-            generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
-        }));
-        const continuation = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-
-        // --- 2. Process the continuation text into a word queue ---
-        if (continuation) {
-            continuation.split(/\s+/).filter(Boolean).forEach(word => {
-                newQueue.push({
-                    word,
-                    styles: { bold: false, italic: false, underline: false, newline: false }
-                });
-            });
-        }
-
-        logger.info({ targetWordCount: targetWordCount, wordCount: newQueue.length, continuation: continuation }, '[bot] Story continuation generated and queued');
-        return newQueue; // Return immediately on success.
-
-    } catch (err) {
-        logger.error({ err }, '[bot] Failed to continue story');
-        return []; // Return an empty array on failure.
-    }
+  const wordsSoFar = currentChapterWords.map(w => w.word).join(' ');
+  return writeChapter({
+    isContinuing: true,
+    targetWordCount,
+    currentWritingStyle,
+    contextData: { wordsSoFar }
+  });
 }
 
 /**
@@ -478,7 +471,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       try {
         const summarizationPrompt = `
           Summarize the following text into a concise paragraph of MINIMUM 30-50 words.
-          Omit dialogue, and names. Focus on visuals, light, colors, scenary.
+          Omit dialogue, and names. Focus on visuals, light, colors, scenary, with a surreal accent.
           Output only the summarized text.
           TEXT: "${summarized}"`.trim();
         const result = await textModelFlash.generateContent({
@@ -505,13 +498,14 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       `- Medium/Surface: ${(selectedStyle.surface || []).join(', ')}`,
       `- Technique: ${selectedStyle.enforce.join(', ') || selectedStyle.description}`,
       `- Palette: ${(selectedStyle.palette || []).join(', ')}`,
-      `- Quality: graphical fine art, masterpiece, award-winning, high detail, intricate.`,
+      `- Quality: fine art, masterpiece, award-winning, high detail, intricate.`,
       ``,
       `CRITICAL:`,
       `- YOU MUST NOT ADD ANY TEXT ON THE IMAGE. `,
+      `- RESPECT these keywords: Surreal, Abstract, Graphical , Allegory, Dreamlike, Oneiric.`,
+      `- PREFER CLEAR BRIGHT RENDER, AVOID vignetting, dark, muddy, or underexposed scenes. `,
       `- AVOID photorealistic and 3D render aspects.`,
-      `- AVOID vignetting effect. `,
-      `- AVOID dark, muddy, or underexposed scenes. `,
+      `- AVOID cartoon style. `,
       `- the image must fill the entire square canvas.`,
     ].join('\n');
     logger.info({ finalPrompt: finalPrompt }, '[image] Final Imagen prompt prepared.');
@@ -529,7 +523,10 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
 
     const predictBody = {
       instances: [{ prompt: finalPrompt }],
-      parameters: { sampleCount: 1, aspectRatio: "1:1" }
+      parameters: {
+        sampleCount: 1,
+        aspectRatio: "1:1",
+        guidanceScale: 20.0}
     };
     const predictRes = await fetch(predictUrl, {
       method: 'POST',

@@ -102,7 +102,7 @@ let botHasSubmitted = false;        // A lock to prevent the bot from submitting
 let botIsConcluding = false;        // A lock to prevent the bot from running multiple times when concluding.
 let submissionIsLocked = false;     // Prevents users from writing during the sealing process until the bot has finished generating a title
 let liveChapterId = null;           // Stores the MongoDB _id of the current live chapter document.
-let isGeneratingImage = false;      // Tracks if an image is currently being generated.
+let isImageGenerating = false;      // Tracks if an image is currently being generated.
 let mustSeal = false;
 const TARGET_CHAPTER_WORD_COUNT = Math.floor(((constants.CHAPTER_DURATION_MINUTES * 60) / constants.ROUND_DURATION_SECONDS));
 
@@ -500,7 +500,7 @@ async function finalizeAndSealChapter() {
   }
 
   submissionIsLocked = true;
-  isGeneratingImage = true;
+  isImageGenerating = true;
   logger.info('[history] Finalizing chapter: User submissions are now locked.');
 
   try {
@@ -534,13 +534,13 @@ async function finalizeAndSealChapter() {
     // --- 3. GENERATE IMAGE & CROSS-POST ---
     let imageUrl = null;
     const shareableUrl = `https://www.sntnz.com/chapter/${hash}`;
-    if (isProduction) {
+    //if (isProduction) {
       imageUrl = await generateAndUploadImage(chapterText, chapterToSeal.title, hash, isProduction);
-      await postEverywhere(chapterText, shareableUrl, imageUrl);
-    }
+      //await postEverywhere(chapterText, shareableUrl, imageUrl);
+    //}
 
     // --- 4. FINALIZE THE CHAPTER IN THE DATABASE (UPDATE) ---
-    await chaptersCollection.updateOne(
+    const updateResult = await chaptersCollection.updateOne(
       { _id: liveChapterId },
       {
         $set: {
@@ -552,8 +552,11 @@ async function finalizeAndSealChapter() {
       }
     );
 
-    if (imageUrl) {
-      io.emit('newImageSealed', { imageUrl: imageUrl });
+    // After updating, fetch the complete, finalized chapter document
+    const sealedChapter = await chaptersCollection.findOne({ _id: liveChapterId });
+
+    if (sealedChapter) {
+      io.emit('chapterSealed', { sealedChapter });
     }
 
     logger.info({ chapterHash: hash }, '[history] Successfully sealed chapter');
@@ -562,7 +565,7 @@ async function finalizeAndSealChapter() {
     logger.error({ err }, '[history] Error finalizing chapter');
   } finally {
     // --- 5. RESET STATE FOR THE NEXT CHAPTER ---
-    isGeneratingImage = false;
+    isImageGenerating = false;
     botIsConcluding = false;
     botMustWriteTitle = true; // Signal the bot to create the next title
     botMustStartChapter = false;
@@ -711,7 +714,7 @@ app.use(helmet({    // Security headers.
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "script-src": ["'self'", "https://www.googletagmanager.com", "'sha256-OA2+WwO3QgUk7M9ZSzbg29s8IVv30EukCadh8Y7SQYw='"],
         "connect-src": ["'self'", "https://region1.google-analytics.com"],
-        "img-src": ["'self'", "data:", "lh3.googleusercontent.com", "storage.googleapis.com"],
+        "img-src": ["'self'", "data:", "lh3.googleusercontent.com", "storage.googleapis.com", "https://www.googletagmanager.com"],
     }},
 }));
 app.use(cors({ origin(origin, cb) { cb(null, !origin || ORIGINS.includes(origin)); } })); // CORS policy.
@@ -1070,7 +1073,7 @@ io.on('connection', async (socket) => {
       liveSubmissions: getLiveFeedState(userId),
       nextTickTimestamp,
       latestImageUrl: initialImageUrl,
-      isGeneratingImage: isGeneratingImage
+      isImageGenerating: isImageGenerating
     });
 
   } catch (err) {
@@ -1081,7 +1084,7 @@ io.on('connection', async (socket) => {
       liveSubmissions: [],
       nextTickTimestamp: computeNextRoundEndTime(),
       latestImageUrl: null,
-      isGeneratingImage: false
+      isImageGenerating: false
     });
   }
 

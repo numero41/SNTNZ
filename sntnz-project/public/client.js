@@ -63,8 +63,8 @@ setInterval(() => {
 /**
  * Fired once on connection to receive the complete initial state.
  */
-socket.on('initialState', ({ initialChapters, liveSubmissions, nextTickTimestamp: serverTimestamp, latestImageUrl, isGeneratingImage }) => {
-  ui.renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isGeneratingImage });
+socket.on('initialState', ({ initialChapters, liveSubmissions, nextTickTimestamp: serverTimestamp, latestImageUrl, isImageGenerating }) => {
+  ui.renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isImageGenerating });
   nextTickTimestamp = serverTimestamp;
 });
 
@@ -91,10 +91,10 @@ socket.on('imageGenerationStarted', () => {
 });
 
 /**
- * Fired when a new chapter is sealed and a new image is available.
+ * Fired when a new chapter is sealed and its data (including image) is available.
  */
-socket.on('newImageSealed', ({ imageUrl }) => {
-  ui.handleNewSealedImage(imageUrl);
+socket.on('chapterSealed', ({ sealedChapter }) => {
+  ui.handleChapterSealed(sealedChapter);
 });
 
 /**

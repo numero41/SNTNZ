@@ -151,6 +151,23 @@ function createChapterElement(chapterData) {
 }
 
 /**
+ * Finds the "live" chapter placeholder and replaces it with the final sealed chapter.
+ * @param {object} sealedChapter - The final chapter data from the server.
+ */
+export function replaceLiveChapter(sealedChapter) {
+  // The "live" chapter is identified by the hash "Pending..."
+  const liveChapterElement = document.getElementById('Pending...');
+
+  if (liveChapterElement) {
+    const newChapterElement = createChapterElement(sealedChapter);
+    if (newChapterElement) {
+      // Atomically swap the old placeholder with the new, final element
+      liveChapterElement.replaceWith(newChapterElement);
+    }
+  }
+}
+
+/**
  * Renders the pagination links at the bottom of the page.
  * @param {HTMLElement} container - The pagination container element.
  * @param {Array<string>} dates - All available dates (e.g., ["2025-08-29", "2025-08-30"]).

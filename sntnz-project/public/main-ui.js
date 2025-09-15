@@ -88,7 +88,7 @@ export function init(socketInstance, config) {
  * Renders the initial state of the application on first load.
  * @param {Object} initialState - The full initial state object from the server.
  */
-export function renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isGeneratingImage }) {
+export function renderInitialState({ currentText: initialChapters, liveSubmissions, latestImageUrl, isImageGenerating }) {
   currentTextContainer.innerHTML = '';
   imageTimeline = []; // Clear the timeline on re-init
   currentWordsArray = []; // Clear the words array
@@ -111,7 +111,6 @@ export function renderInitialState({ currentText: initialChapters, liveSubmissio
   });
 
   latestImageUrlOnLoad = latestImageUrl;
-  isImageGenerating = isGeneratingImage; // Store the initial generating status
   renderLiveFeed(liveSubmissions);
   renderContributorsDropdown(mainContributorsContainer, currentWordsArray, currentTextContainer);
 
@@ -133,43 +132,67 @@ export function renderInitialState({ currentText: initialChapters, liveSubmissio
 }
 
 /**
- * Renders the latest AI-generated image at the top of the page.
- * If no image URL is provided, it displays a placeholder message.
- * @param {string|null} imageUrl - The public URL of the image.
+ * Renders an image or placeholder with a graceful cross-fade effect between
+ * the old and new images.
  */
-export function renderImage(imageUrl, isGeneratingImage = false) {
+export function renderImage(imageUrl) {
   if (!latestImageContainer) return;
 
-  // --- CASE 1: We need to display an image. ---
-  if (imageUrl) {
-    const currentImg = latestImageContainer.querySelector('img');
-    // If the correct image is already being displayed, do nothing.
-    if (currentImg && currentImg.src === imageUrl) {
-      return;
-    }
-
-    // Otherwise, create and load the new image.
-    const img = new Image();
-    img.alt = 'AI-generated image for the current story chapter';
-    img.onload = () => {
-      latestImageContainer.innerHTML = ''; // Clear placeholder or old image.
-      latestImageContainer.appendChild(img);
-    };
-    img.src = imageUrl;
-  }
-  // --- CASE 2: We need to display the placeholder. ---
-  else {
-    const placeholder = latestImageContainer.querySelector('.image-placeholder-text');
-    // If the placeholder is already visible, do nothing.
-    if (placeholder) {
-      return;
-    }
-    // Otherwise, clear any existing image and show the placeholder.
-    latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chapter</div>`;
-    if (isGeneratingImage) {
+  // --- CASE 1: Display a placeholder ---
+  if (!imageUrl) {
+    if (isImageGenerating) {
       showImageGenerationPlaceholder();
+    } else {
+      latestImageContainer.innerHTML = `<div class="image-placeholder-text">No image for this chapter</div>`;
     }
+    return;
   }
+
+  // --- CASE 2: Display an image ---
+  // Find the currently visible image (one that isn't already loading/transparent).
+  const currentImg = latestImageContainer.querySelector('img:not(.image-loading)');
+
+  // If the correct image is already fully visible, do nothing.
+  if (currentImg && currentImg.src === imageUrl) {
+    return;
+  }
+
+  // Immediately remove any text-based placeholders.
+  const placeholder = latestImageContainer.querySelector('.image-generating-text, .image-placeholder-text');
+  if (placeholder) {
+    placeholder.remove();
+  }
+
+  const newImg = document.createElement('img');
+  newImg.alt = 'AI-generated image for the current story chapter';
+  newImg.className = 'image-loading'; // Start new image transparent
+  latestImageContainer.appendChild(newImg);
+
+  newImg.onload = () => {
+    // Force the browser to apply styles before transitioning.
+    void newImg.offsetWidth;
+    setTimeout(() => {
+      // 1. Fade IN the new image by removing its loading class.
+      newImg.classList.remove('image-loading');
+
+      // 2. Fade OUT the old image (if it exists) by adding the same class.
+      if (currentImg) {
+        currentImg.classList.add('image-loading');
+
+        // 3. IMPORTANT: Remove the old image from the DOM only AFTER its
+        //    fade-out transition has finished.
+        currentImg.addEventListener('transitionend', () => {
+          currentImg.remove();
+        }, { once: true }); // { once: true } is a modern way to auto-cleanup the listener.
+      }
+    }, 0);
+  };
+
+  newImg.onerror = () => {
+    latestImageContainer.innerHTML = `<div class="image-placeholder-text">Error loading image</div>`;
+  };
+
+  newImg.src = imageUrl;
 }
 
 /**
@@ -507,39 +530,30 @@ export function updateScrollEffects() {
 
   // Render the winner. If no chapter with an image is visible, winningImageUrl
   // will be null, and renderImage will correctly show the placeholder.
-  renderImage(winningImageUrl, isImageGenerating);
+  renderImage(winningImageUrl);
 }
 
 /**
- * Handles the arrival of a new sealed image from the server.
- * It only updates the visible image if the user is currently scrolled to the bottom.
- * This prevents the image from changing unexpectedly while a user is reading past history.
- * @param {string} imageUrl - The URL of the newly generated image.
+ * Handles the arrival of a newly sealed chapter. This version updates the state
+ * and then directly forces the new image to render, bypassing complex calculations.
  */
-export function handleNewSealedImage(imageUrl) {
-  pendingImageUrl = imageUrl;
+export function handleChapterSealed(sealedChapter) {
+  if (!sealedChapter || !sealedChapter.imageUrl) return;
 
-  // Preload the image, then atomically swap it in.
-  const img = new Image();
-  img.alt = 'AI-generated image for the current story chapter';
-  img.onload = () => {
-    const el = currentTextContainer;
-    const scrollBuffer = 5;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= scrollBuffer;
+  // 1. Update the state (this is still important for future scrolling)
+  if (sealedChapter.words && sealedChapter.words.length > 0) {
+    imageTimeline.push({
+        start_ts: sealedChapter.words[0].ts,
+        end_ts: sealedChapter.words[sealedChapter.words.length - 1].ts,
+        imageUrl: sealedChapter.imageUrl
+    });
+  }
+  latestImageUrlOnLoad = sealedChapter.imageUrl;
+  isImageGenerating = false;
 
-    // Update state unconditionally
-    latestImageUrlOnLoad = imageUrl;
-    isImageGenerating = false;
-
-    // Only swap the placeholder immediately if user is at bottom
-    if (isAtBottom && latestImageContainer) {
-      latestImageContainer.innerHTML = '';
-      latestImageContainer.appendChild(img);
-    }
-  };
-  img.src = imageUrl;
+  // 2. Render the new image.
+  renderImage(sealedChapter.imageUrl);
 }
-
 
 /**
  * Removes all `<span>` or `<br>` elements on the first rendered line of the text container.

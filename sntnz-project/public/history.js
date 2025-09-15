@@ -146,16 +146,14 @@ async function fetchAndRenderHistory() {
   });
 
   // 7. Listen for newly sealed chapters and refresh the page data
-  socket.on('newImageSealed', () => {
-    // Check if the user is currently viewing today's date.
+  socket.on('chapterSealed', ({ sealedChapter }) => {
     const urlParams = new URLSearchParams(window.location.search);
     const requestedDate = urlParams.get('date');
     const todayDate = new Date().toISOString().split('T')[0];
 
-    // Only refresh if the user is on the main history page (no date) or today's date.
     if (!requestedDate || requestedDate === todayDate) {
-      // Re-run the main fetch function to get the latest data without a full page reload.
-      fetchAndRenderHistory();
+      // EFFICIENT: Call the new UI function to replace the live chapter directly
+      ui.replaceLiveChapter(sealedChapter);
     }
   });
 })();
