@@ -455,3 +455,19 @@ export function throttle(func, delay) {
   };
 }
 
+/**
+ * Creates a debounced version of a function that delays invoking func until after
+ * `delay` milliseconds have passed since the last time it was invoked.
+ * @param {Function} func - The function to debounce.
+ * @param {number} delay - The debounce delay in milliseconds.
+ * @returns {Function} The new debounced function.
+ */
+export function debounce(func, delay) {
+  let timeoutId;
+  return function(...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}

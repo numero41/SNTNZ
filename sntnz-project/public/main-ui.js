@@ -6,7 +6,7 @@
 // response to server events and user actions.
 // ============================================================================
 
-import { renderWord, addTooltipEvents, renderContributorsDropdown, startSealCountdown, addImageModalEvents, throttle } from './shared-ui.js';
+import { renderWord, addTooltipEvents, renderContributorsDropdown, startSealCountdown, addImageModalEvents, throttle, debounce } from './shared-ui.js';
 
 // --- MODULE STATE ---
 // These variables hold the state of the UI throughout the application's lifecycle.
@@ -608,9 +608,9 @@ function addNavEvents() {
     window.location.href = '/history.html';
   });
   // The scroll effects need to be updated continuously as the user scrolls.
-  // Throttle the scroll handler to run at most once every 50ms
-  const throttledScrollHandler = throttle(updateScrollEffects, 50);
-  currentTextContainer.addEventListener('scroll', throttledScrollHandler);
+  // Use debounce to ensure the final scroll position is always processed.
+  const debouncedScrollHandler = debounce(updateScrollEffects, 100); // A 100ms delay feels smooth
+  currentTextContainer.addEventListener('scroll', debouncedScrollHandler);
 }
 
 /**
