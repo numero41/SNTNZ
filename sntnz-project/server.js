@@ -534,10 +534,10 @@ async function finalizeAndSealChapter() {
     // --- 3. GENERATE IMAGE & CROSS-POST ---
     let imageUrl = null;
     const shareableUrl = `https://www.sntnz.com/chapter/${hash}`;
-    //if (isProduction) {
+    if (isProduction) {
       imageUrl = await generateAndUploadImage(chapterText, chapterToSeal.title, hash, isProduction);
-      //await postEverywhere(chapterText, shareableUrl, imageUrl);
-    //}
+      await postEverywhere(chapterText, shareableUrl, imageUrl);
+    }
 
     // --- 4. FINALIZE THE CHAPTER IN THE DATABASE (UPDATE) ---
     const updateResult = await chaptersCollection.updateOne(
