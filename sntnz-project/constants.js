@@ -255,104 +255,124 @@ module.exports = {
   // --- Image styles ---
   "IMAGE_STYLES": [
     {
+      "name": "Moebius, Manara, Pratt (Ligne Claire)",
+      "description": "Clean, uniform ink lines, no shadows."
+    },
+    {
+      "name": "Kubrick, Wes Anderson, Greenaway (Symmetry)",
+      "description": "Perfect one-point perspective, cinematic."
+    },
+    {
+      "name": "Hokusai, Hiroshige, Utamaro (Ukiyo-e)",
+      "description": "Bold outlines, flat colors, graphic forms."
+    },
+    {
+      "name": "Bernhard, Erdt, Hohlwein (Plakatstil)",
+      "description": "Bold, simple subjects, flat color."
+    },
+    {
+      "name": "Rodchenko, Lissitzky, Stepanova (Constructivism)",
+      "description": "Geometric shapes, stark diagonals, limited palette."
+    },
+    {
+      "name": "Cassandre, Lempicka, Erté (Art Deco)",
+      "description": "Sleek, symmetrical geometry, metallic sheen."
+    },
+    {
+      "name": "Mucha, Beardsley, Toulouse-Lautrec (Art Nouveau)",
+      "description": "Flowing, ornamental 'whiplash' linework."
+    },
+    {
+      "name": "Müller-Brockmann, Hofmann, Max Bill (Swiss Style)",
+      "description": "Clean, grid-based layout, sans-serif type."
+    },
+    {
+      "name": "Da Vinci, Piranesi, Sant'Elia (Technical Drawing)",
+      "description": "Technical engraving, precise crosshatching."
+    },
+    {
+      "name": "Gothic Stained Glass",
+      "description": "Bold black leading, luminous jewel tones."
+    },
+    {
+      "name": "Egyptian Papyrus Hieroglyphs",
+      "description": "Crisp black outlines, mineral pigments."
+    },
+    {
       "name": "Mesoamerican Codex",
-      "description": "Bold, geometric manuscript style with flat colors, symbolic glyphs, and ornamental banding on bark paper."
+      "description": "Bold contour lines, flat color fields, glyphs."
     },
     {
-      "name": "Egyptian Papyrus Fresco",
-      "description": "Linear, narrative style on papyrus with composite perspective, black outlines, and mineral pigment colors."
+      "name": "Rembrandt, Vermeer, Caravaggio (Chiaroscuro)",
+      "description": "Dramatic, high-contrast lighting."
     },
     {
-      "name": "Mughal Miniature Painting",
-      "description": "Highly detailed, courtly manuscript art with fine brushwork, jeweled tones, and ornate gold borders."
+      "name": "Alton, Lang, Welles (Film Noir)",
+      "description": "Stark black and white, hard-edged shadows."
     },
     {
-      "name": "Japanese Ukiyo-e & Rimpa School",
-      "description": "Graphic woodblock prints and paintings with bold outlines, flat colors, and decorative gold leaf patterns."
+      "name": "Gropius, Moholy-Nagy, Bayer (Bauhaus)",
+      "description": "Geometric primitives, primary colors, order."
     },
     {
-      "name": "Dutch Golden Age Chiaroscuro",
-      "description": "Dramatic oil-on-canvas style using deep light-dark contrast, warm earth tones, and visible brushwork."
+      "name": "Peter Max, Moscoso, Wes Wilson (Psychedelic Art)",
+      "description": "Swirling contours, vibrating bright colors."
     },
     {
-      "name": "Dynamic Art Nouveau",
-      "description": "Ornamental lithograph style with flowing whiplash curves, stylized nature motifs, and soft pastel palettes."
+      "name": "Otomo, Syd Mead, Oshii (Cyberpunk Anime)",
+      "description": "Technical line art, cel-shading, neon."
     },
     {
-      "name": "Streamlined Art Deco",
-      "description": "Sleek, geometric style featuring sharp symmetry, sunburst motifs, and a polished metallic or lacquer finish."
+      "name": "Stella, Judd, Vignelli (Minimalism)",
+      "description": "Clean lines, bold shapes, negative space."
     },
     {
-      "name": "Generative Glitch Art",
-      "description": "Digital art style using algorithmic distortion, datamoshing, RGB splits, and other pixelated artifacts."
+      "name": "Frazetta, Vallejo, Bell (Fantasy Art)",
+      "description": "Dynamic figures, dramatic action, painted."
     },
     {
-      "name": "Anachronic Steampunk Mechanics",
-      "description": "Victorian-inspired technical art with engraved blueprint lines, crosshatching, and brass and leather textures."
+      "name": "Mughal Miniature Detail",
+      "description": "Fine, crisp brushwork, opaque watercolors."
     },
     {
-      "name": "Mid-Century Graphic Optimism",
-      "description": "Modernist silkscreen style with playful geometry, clean grids, simple icons, and a cheerful primary palette."
+      "name": "David, Ingres, Canova (Neoclassicism)",
+      "description": "Dramatic lighting, sharp contours, classical forms."
     },
     {
-      "name": "Psychedelic 70s Funk",
-      "description": "Vibrant concert-poster art with swirling forms, trippy motifs, and vibrating complementary acid-bright colors."
+      "name": "Goya, Kollwitz, Redon (Dark Expressionism)",
+      "description": "Dark, expressive, dramatic, high-contrast."
     },
     {
-      "name": "80s Neon & Memphis Design",
-      "description": "Bold, postmodern style with flat neon colors, playful geometric patterns, and retro drop shadows."
+      "name": "Moreau, Böcklin, Klimt (Symbolism)",
+      "description": "Mythological subjects, intricate detail, rich color."
     },
     {
-      "name": "90s Grunge & Analog Glitch",
-      "description": "Distressed, layered aesthetic with photocopy noise, tape scuffs, bitmap halftones, and hand-cut collage edges."
+      "name": "Blake, Dürer, Doré (Master Engravers)",
+      "description": "Mystical figures, strong ink lines, literary."
     },
     {
-      "name": "80s Cyberpunk Anime Opus",
-      "description": "Cinematic retro-futuristic anime style with high-density technical lineart, cel shading, and neon accents."
+      "name": "Morris, Crane, Mackintosh (Arts & Crafts)",
+      "description": "Intricate organic patterns, medieval style."
     },
     {
-      "name": "Kubrickian One-Point Perspective",
-      "description": "Cinematic style defined by perfect one-point perspective, austere symmetry, and precise geometric framing."
+      "name": "Klimt, Moser, Schiele (Vienna Secession)",
+      "description": "Ornate, decorative patterns, gold leaf."
     },
     {
-      "name": "Lynchian Industrial Surrealism",
-      "description": "Eerie, atmospheric style with industrial textures, moody monochrome palettes, and uncanny, dreamlike staging."
+      "name": "Boccioni, Balla, Carrà (Futurism)",
+      "description": "Dynamic lines, speed, energy, geometric."
     },
     {
-      "name": "Abstract Expressionist Gestures",
-      "description": "Energetic, large-scale style with expressive paint drips, splatters, and assertive, layered impasto brush marks."
+      "name": "Mondrian, van Doesburg, Rietveld (De Stijl)",
+      "description": "Primary colors, black grid, geometric abstraction."
     },
     {
-      "name": "Bauhaus Functionalist Design",
-      "description": "Orderly design with geometric clarity, strict modular grids, and a primary color palette on poster board."
+      "name": "Warhol, Lichtenstein, Haring (Pop Art)",
+      "description": "Bold outlines, Ben-Day dots, bright colors."
     },
     {
-      "name": "Expressive Black & White Minimalism",
-      "description": "High-contrast monochrome style using bold shapes, sharp lines, and disciplined use of negative space."
-    },
-    {
-      "name": "Japanese Mono-ha & Wabi-Sabi",
-      "description": "Contemplative style emphasizing natural materials, restrained ink wash, and asymmetrical balance with empty space."
-    },
-    {
-      "name": "Italian High Renaissance Sfumato",
-      "description": "Harmonious oil painting style with soft tonal blending (sfumato), layered glazing, and subtle chiaroscuro."
-    },
-    {
-      "name": "Flemish Baroque Dynamism",
-      "description": "Theatrical oil-on-canvas style with dynamic diagonal compositions, rich glazing, and lively, dramatic brushwork."
-    },
-    {
-      "name": "Romantic Sublime Landscape",
-      "description": "Atmospheric oil paintings of grand landscapes with dramatic skies, epic scale, and luminous backlighting."
-    },
-    {
-      "name": "Impressionist En Plein Air",
-      "description": "Spontaneous style focused on capturing flickering light with visible brushstrokes and vibrating complementary colors."
-    },
-    {
-      "name": "Pointillist Color Theory",
-      "description": "Systematic painting style using precise dots of pure pigment for optical color mixing on canvas."
+      "name": "Medieval Illuminated Manuscript",
+      "description": "Decorative borders, gold leaf, flat colors."
     }
   ]
 };

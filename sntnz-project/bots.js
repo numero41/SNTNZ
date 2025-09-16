@@ -270,7 +270,7 @@ async function writeChapter({ isContinuing, targetWordCount, currentWritingStyle
         });
     }
 
-    logger.info({ wordCount: newQueue.length, model: selectedModel.model }, `[bot] Successfully generated ${logContext}`);
+    logger.info({ wordCount: newQueue.length, text: generatedText, model: selectedModel.model }, `[bot] Successfully generated ${logContext}`);
     return newQueue;
 
   } catch (err) {
@@ -471,7 +471,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
         Read the following story excerpt and synthesize its essence into a short scene description for an image generator.\n
 
         - Omit dialogue and character names.\n
-        - Focus on scenery, light, mood.\n
+        - Focus on scenery, bright light, mood.\n
         - Make short sentences.\n
         - CTRITICAL: The whole output MUST NOT exceed 40 words.\n\n
 
@@ -493,7 +493,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       }
 
       // --- Step 3: Manually construct the full prompt in code ---
-      const mainPrompt = `A POWERFUL ${selectedStyle.name} artwork depicting: "${sceneDescription}". Emphasize these STYLE details: "${selectedStyle.description}".`;
+      const mainPrompt = `A POWERFUL and clear artwork in this style: "${selectedStyle.name}". Depicting this scene: "${sceneDescription}". Emphasize these STYLE details: "${selectedStyle.description}".`;
       const negativePrompt = `AVOID these elements: text, words, letters, photorealism, 3D render, cartoon, vignetting, dark, muddy, underexposed.`;
 
       finalPrompt = `${mainPrompt}\n\n${negativePrompt}`;
