@@ -256,303 +256,103 @@ module.exports = {
   "IMAGE_STYLES": [
     {
       "name": "Mesoamerican Codex",
-      "description": "Manuscript style with bold glyphs and geometric patterns.",
-      "enforce": [
-        "natural pigments", "bold contour lines", "flat color fields",
-        "modular glyphs", "ornamental banding", "screenfold layout",
-        "symbolic, allegorical, graphical, resonant aesthetics"
-      ],
-      "forbid": ["photographic shading", "3D rendering", "neon glow", "lens flare", "airbrush gradients"],
-      "palette": ["earth pigments", "cochineal red", "indigo blue", "ochre", "black outline"],
-      "surface": ["amate bark paper", "painted codex plate", "matte finish"]
+      "description": "Bold, geometric manuscript style with flat colors, symbolic glyphs, and ornamental banding on bark paper."
     },
     {
       "name": "Egyptian Papyrus Fresco",
-      "description": "New Kingdom style with composite perspective and linear clarity.",
-      "enforce": [
-        "papyrus texture", "matte mineral pigments", "black outline",
-        "composite perspective", "frontal torsos with profile heads", "register lines",
-        "evocative, symbolic, allegorical narrative"
-      ],
-      "forbid": ["realistic perspective", "depth of field", "digital glow", "chrome", "airbrush shading"],
-      "palette": ["malachite green", "red ochre", "carbon black", "gypsum white", "earth tones"],
-      "surface": ["papyrus fibers", "dry matte paint", "crisp linework"]
+      "description": "Linear, narrative style on papyrus with composite perspective, black outlines, and mineral pigment colors."
     },
     {
       "name": "Mughal Miniature Painting",
-      "description": "Courtly manuscript style with fine detail and jeweled palettes.",
-      "enforce": [
-        "opaque watercolor (gouache)", "gold heightening", "fine brushwork",
-        "miniature scale detailing", "isometric gardens", "ornate borders",
-        "ethereal, dreamlike, metaphorical scenes"
-      ],
-      "forbid": ["neon glow", "HDR shine", "vector-clean edges", "spray paint look", "photographic bokeh"],
-      "palette": ["jewel tones", "vermilion", "lapis blue", "malachite green", "gold"],
-      "surface": ["smooth burnished paper", "illumination sparkle", "album page border"]
+      "description": "Highly detailed, courtly manuscript art with fine brushwork, jeweled tones, and ornate gold borders."
     },
     {
       "name": "Japanese Ukiyo-e & Rimpa School",
-      "description": "Graphic linework, flat planes, and decorative gold patterns.",
-      "enforce": [
-        "woodblock print registration", "keyblock outlines", "flat color areas",
-        "mica or gold ground", "asymmetrical composition", "kento marks",
-        "striking, evocative, graphical, symbolic forms"
-      ],
-      "forbid": ["oil impasto", "photographic gradients", "lens flare", "3D shading", "HDR glow"],
-      "palette": ["indigo", "vermilion", "sumi ink", "gold leaf", "muted dyes"],
-      "surface": ["washi paper texture", "woodblock grain hints", "crisp registration"]
+      "description": "Graphic woodblock prints and paintings with bold outlines, flat colors, and decorative gold leaf patterns."
     },
     {
       "name": "Dutch Golden Age Chiaroscuro",
-      "description": "Oil-on-canvas with dramatic light/dark contrast and glazing.",
-      "enforce": [
-        "oil on canvas", "layered glazing", "deep chiaroscuro", "warm underpainting",
-        "visible brushwork", "soft edge transitions",
-        "potent, gripping, metaphorical, dreamlike mood"
-      ],
-      "forbid": ["neon", "bioluminescent glow", "sci-fi UI", "chrome highlights", "vector-clean edges"],
-      "palette": ["earth pigments", "raw umber", "burnt sienna", "lead white", "lamp black"],
-      "surface": ["canvas weave", "varnish bloom", "subtle craquelure"]
+      "description": "Dramatic oil-on-canvas style using deep light-dark contrast, warm earth tones, and visible brushwork."
     },
     {
       "name": "Dynamic Art Nouveau",
-      "description": "Ornamental linework, flowing arabesques, and organic asymmetry.",
-      "enforce": [
-        "lithographic poster feel", "flowing arabesques", "whiplash curves",
-        "ornamental frames", "flat decorative fields", "stylized flora",
-        "evocative, dreamlike, ethereal, flowing compositions"
-      ],
-      "forbid": ["hard pixel edges", "industrial sci-fi UI", "chrome mechs", "photoreal", "neon cyber glow"],
-      "palette": ["soft pastels", "muted jewel tones", "cream grounds", "gold accents"],
-      "surface": ["smooth litho texture", "poster grain", "clean margins"]
+      "description": "Ornamental lithograph style with flowing whiplash curves, stylized nature motifs, and soft pastel palettes."
     },
     {
       "name": "Streamlined Art Deco",
-      "description": "Geometric streamlining, sharp symmetry, and metallic polish.",
-      "enforce": [
-        "symmetrical layout", "sunburst motifs", "stepped forms", "lacquer sheen",
-        "stylized geometry", "architectural ornament",
-        "powerful, striking, symbolic, graphical geometry"
-      ],
-      "forbid": ["messy grunge", "handmade brush chaos", "impressionist dabbling", "low-contrast haze"],
-      "palette": ["black", "ivory", "gold", "teal", "crimson accents"],
-      "surface": ["lacquer-like panel", "polished metallic cues", "sharp edges"]
+      "description": "Sleek, geometric style featuring sharp symmetry, sunburst motifs, and a polished metallic or lacquer finish."
     },
     {
       "name": "Generative Glitch Art",
-      "description": "Algorithmic distortion, databending, and digital artifacting.",
-      "enforce": [
-        "scanline artifacts", "datamosh blocks", "RGB channel splits",
-        "compression blocks", "spectral waveforms",
-        "abstract, surreal, oneiric, potent digital decay"
-      ],
-      "forbid": ["classical oil brushwork", "paper fiber grain", "antique varnish", "hand-ink line jitter"],
-      "palette": ["additive RGB", "CMYK clash", "monochrome noise maps"],
-      "surface": ["clean archival print margins", "digital pixel structure"]
+      "description": "Digital art style using algorithmic distortion, datamoshing, RGB splits, and other pixelated artifacts."
     },
     {
       "name": "Anachronic Steampunk Mechanics",
-      "description": "Victorian techno-romance with engraved blueprint aesthetics.",
-      "enforce": [
-        "copperplate engraving lines", "crosshatching", "exploded diagrams",
-        "Victorian typography", "machined brass and leather cues",
-        "allegorical, symbolic, powerfully intricate designs"
-      ],
-      "forbid": ["neon cyber glow", "slick chrome futurism", "digital gradients", "soft painterly sfumato"],
-      "palette": ["sepia", "ink black", "oxidized brass", "parchment tone"],
-      "surface": ["engraving plate feel", "paper grain", "ink impression"]
+      "description": "Victorian-inspired technical art with engraved blueprint lines, crosshatching, and brass and leather textures."
     },
     {
       "name": "Mid-Century Graphic Optimism",
-      "description": "Modernist order with playful geometry, grids, and bold simplicity.",
-      "enforce": [
-        "silkscreen look", "flat shapes", "geometric forms", "clean grids",
-        "simple iconography", "bold figure-ground",
-        "graphical, symbolic, resonant, abstract forms"
-      ],
-      "forbid": ["hyper detail", "oil impasto", "photographic realism", "grunge textures", "complex gradients"],
-      "palette": ["cheerful primaries", "pastels", "off-black ink"],
-      "surface": ["silkscreen paper", "slight print misregistration"]
+      "description": "Modernist silkscreen style with playful geometry, clean grids, simple icons, and a cheerful primary palette."
     },
     {
       "name": "Psychedelic 70s Funk",
-      "description": "Concert-poster style with swirling forms and surreal energy.",
-      "enforce": [
-        "hand-lettered poster vibes", "swirling contours", "overprint effects",
-        "vibrating complementary colors", "trippy motifs",
-        "surreal, dreamlike, oneiric, gripping visuals"
-      ],
-      "forbid": ["classical chiaroscuro", "muted earth-only palette", "photographic bokeh", "sterile vector minimalism"],
-      "palette": ["acid brights", "fluorescents", "ink overprints"],
-      "surface": ["poster paper", "screenprint grain"]
+      "description": "Vibrant concert-poster art with swirling forms, trippy motifs, and vibrating complementary acid-bright colors."
     },
     {
       "name": "80s Neon & Memphis Design",
-      "description": "Bold postmodern style with flat neons and playful geometrics.",
-      "enforce": [
-        "flat neon planes", "Memphis patterns", "geometric icons",
-        "drop shadows", "grid backdrops", "retro vapor motifs",
-        "striking, graphical, abstract, dreamlike patterns"
-      ],
-      "forbid": ["oil canvas weave", "antique paper grain", "Renaissance sfumato", "baroque glazing"],
-      "palette": ["electric cyan", "magenta", "yellow", "black", "pastel neons"],
-      "surface": ["magazine cover slickness", "clean vector edges"]
+      "description": "Bold, postmodern style with flat neon colors, playful geometric patterns, and retro drop shadows."
     },
     {
       "name": "90s Grunge & Analog Glitch",
-      "description": "Layered distressed textures, photocopy wear, and analog-digital hybrid.",
-      "enforce": [
-        "xerox noise", "tape scuffs", "overprint misalign", "hand-cut collage edges",
-        "bitmap halftone", "staple shadows",
-        "evocative, gripping, resonant, abstract textures"
-      ],
-      "forbid": ["polished chrome", "perfect vector edges", "museum varnish gloss", "classical oil blending"],
-      "palette": ["dirty blacks", "burnt reds", "acid greens", "desaturated inks"],
-      "surface": ["zine paper", "distressed layers", "fold creases"]
+      "description": "Distressed, layered aesthetic with photocopy noise, tape scuffs, bitmap halftones, and hand-cut collage edges."
     },
     {
       "name": "80s Cyberpunk Anime Opus",
-      "description": "High-density technical linework and cinematic, futuristic design.",
-      "enforce": [
-        "cell-shaded anime", "technical lineart", "retro-futuristic cityscapes",
-        "film grain", "theatrical key art",
-        "potent, gripping, dreamlike, symbolic cityscapes"
-      ],
-      "forbid": ["oil impasto", "antique paper fibers", "woodblock registration", "baroque glazing"],
-      "palette": ["neon accents", "noctilucent blues", "industrial grays"],
-      "surface": ["poster finish", "clean cel lines"]
+      "description": "Cinematic retro-futuristic anime style with high-density technical lineart, cel shading, and neon accents."
     },
     {
       "name": "Kubrickian One-Point Perspective",
-      "description": "Measured one-point perspective, symmetry, and austere geometry.",
-      "enforce": [
-        "perfect one-point perspective", "central vanishing point",
-        "axial symmetry", "precise framing", "geometric interiors",
-        "surreal, oneiric, powerfully symmetrical, allegorical scenes"
-      ],
-      "forbid": ["tilted camera chaos", "fish-eye distortion", "handheld jitter", "painterly randomness"],
-      "palette": ["neutral interiors", "controlled saturation", "clean whites"],
-      "surface": ["cinematic poster", "crisp edges"]
+      "description": "Cinematic style defined by perfect one-point perspective, austere symmetry, and precise geometric framing."
     },
     {
       "name": "Lynchian Industrial Surrealism",
-      "description": "Industrial textures, eerie atmospherics, and moody monochrome.",
-      "enforce": [
-        "monochrome or muted tones", "industrial grain", "film-like noise",
-        "foggy atmospherics", "uncanny staging",
-        "surreal, dreamlike, oneiric, potent, gripping mood"
-      ],
-      "forbid": ["bright neon palette", "comic-book flatness", "cheerful poster vibes", "classical varnish sheen"],
-      "palette": ["soot blacks", "smoky grays", "rust browns"],
-      "surface": ["photogravure feel", "velvety blacks"]
+      "description": "Eerie, atmospheric style with industrial textures, moody monochrome palettes, and uncanny, dreamlike staging."
     },
     {
       "name": "Abstract Expressionist Gestures",
-      "description": "Large-scale expressive gestures, layered paint, and assertive marks.",
-      "enforce": [
-        "canvas-scale gestures", "drips and splatters", "impasto ridges",
-        "layered paint", "energetic brush marks",
-        "abstract, powerful, potent, resonant, symbolic gestures"
-      ],
-      "forbid": ["precise lineart", "vector cleanliness", "technical drafting", "miniature filigree", "neon UI"],
-      "palette": ["bold primaries", "earth blacks", "stained canvas tones"],
-      "surface": ["raw canvas edges", "thick paint texture"]
+      "description": "Energetic, large-scale style with expressive paint drips, splatters, and assertive, layered impasto brush marks."
     },
     {
       "name": "Bauhaus Functionalist Design",
-      "description": "Geometric clarity, strict grids, and functionalist order.",
-      "enforce": [
-        "modular grids", "geometric primitives", "sans-serif type experiments",
-        "asymmetric balance", "functional iconography",
-        "graphical, abstract, symbolic, resonant compositions"
-      ],
-      "forbid": ["baroque ornament", "organic arabesques", "random grunge", "oil glazing textures"],
-      "palette": ["black", "white", "primary red", "primary blue", "primary yellow"],
-      "surface": ["poster board", "clean print edges"]
+      "description": "Orderly design with geometric clarity, strict modular grids, and a primary color palette on poster board."
     },
     {
       "name": "Expressive Black & White Minimalism",
-      "description": "Monochrome with bold contrasts, sharp lines, and minimal forms.",
-      "enforce": [
-        "high-contrast black and white", "bold shapes", "sharp delineation",
-        "negative space discipline", "ink-like marks",
-        "striking, graphical, symbolic, powerful, abstract forms"
-      ],
-      "forbid": ["color gradients", "neon", "busy textures", "photographic color", "ornamental excess"],
-      "palette": ["pure black", "paper white"],
-      "surface": ["screenprint feel", "smooth poster finish"]
+      "description": "High-contrast monochrome style using bold shapes, sharp lines, and disciplined use of negative space."
     },
     {
       "name": "Japanese Mono-ha & Wabi-Sabi",
-      "description": "Restrained composition with natural textures and contemplative space.",
-      "enforce": [
-        "natural materials emphasis", "stone/wood/paper textures", "ma (spatial pause)",
-        "ink wash restraint", "asymmetrical balance",
-        "ethereal, resonant, symbolic, metaphorical arrangements"
-      ],
-      "forbid": ["loud neon", "busy ornament", "densely packed detail", "chrome/techno polish", "digital glitch"],
-      "palette": ["ink black", "warm paper", "stone gray", "muted earths"],
-      "surface": ["tactile paper", "raw material grain"]
+      "description": "Contemplative style emphasizing natural materials, restrained ink wash, and asymmetrical balance with empty space."
     },
     {
       "name": "Italian High Renaissance Sfumato",
-      "description": "Harmonic composition, linear perspective, and soft tonal blending.",
-      "enforce": [
-        "oil on wood panel", "egg-oil tempera underpainting", "layered glazing",
-        "soft chiaroscuro", "subtle sfumato", "period lighting",
-        "ethereal, dreamlike, resonant, allegorical figures"
-      ],
-      "forbid": ["neon", "bioluminescent glow", "chrome highlights", "HDR", "digital gradients", "lens flare"],
-      "palette": ["earth tones", "muted primaries", "lead white", "umber", "ochre"],
-      "surface": ["fine craquelure", "aged varnish bloom", "panel grain"]
+      "description": "Harmonious oil painting style with soft tonal blending (sfumato), layered glazing, and subtle chiaroscuro."
     },
     {
       "name": "Flemish Baroque Dynamism",
-      "description": "Diagonal thrust, theatrical staging, and lively brushwork.",
-      "enforce": [
-        "oil on canvas", "dynamic diagonals", "rich glazing", "dramatic staging",
-        "baroque drapery", "lively brushwork",
-        "powerful, gripping, potent, dramatic, allegorical scenes"
-      ],
-      "forbid": ["flat vector minimalism", "Memphis patterns", "sci-fi HUD", "neon glow", "posterized flatness"],
-      "palette": ["saturated reds", "deep blacks", "golden highlights", "earth foundations"],
-      "surface": ["varnished oil sheen", "subtle craquelure", "canvas tooth"]
+      "description": "Theatrical oil-on-canvas style with dynamic diagonal compositions, rich glazing, and lively, dramatic brushwork."
     },
     {
       "name": "Romantic Sublime Landscape",
-      "description": "Atmospheric grandeur, dramatic skies, and luminous light.",
-      "enforce": [
-        "oil landscape conventions", "dramatic cloudscapes", "aerial perspective",
-        "luminous backlight", "epic scale cues",
-        "evocative, ethereal, dreamlike, powerful landscapes"
-      ],
-      "forbid": ["flat graphic poster look", "harsh neon", "UI elements", "technical linework"],
-      "palette": ["luminous skies", "forest greens", "warm earths", "cool distances"],
-      "surface": ["canvas weave", "glazed atmospherics"]
+      "description": "Atmospheric oil paintings of grand landscapes with dramatic skies, epic scale, and luminous backlighting."
     },
     {
       "name": "Impressionist En Plein Air",
-      "description": "Visible strokes, flickering light, and vibrating color harmonies.",
-      "enforce": [
-        "visible brushstrokes", "broken color", "plein air spontaneity",
-        "optical mixing", "natural light study",
-        "dreamlike, evocative, ethereal, resonant light"
-      ],
-      "forbid": ["hard outlines", "polished chrome", "neon graphics", "photographic DOF", "perfect gradients"],
-      "palette": ["pastel lights", "complementary pairs", "sunlit hues"],
-      "surface": ["oil on canvas", "fresh paint texture"]
+      "description": "Spontaneous style focused on capturing flickering light with visible brushstrokes and vibrating complementary colors."
     },
     {
       "name": "Pointillist Color Theory",
-      "description": "Systematic optical mixing with precise dots of pure pigment.",
-      "enforce": [
-        "pointillist stippling", "pure pigment dots", "optical mixing",
-        "systematic mark size", "even field coverage",
-        "abstract, dreamlike, resonant, graphical dot patterns"
-      ],
-      "forbid": ["broad impasto strokes", "airbrush blends", "digital gradient fills", "neon glow edges"],
-      "palette": ["pure primaries", "luminous complements", "restrained gamut"],
-      "surface": ["oil on canvas", "dot texture field"]
+      "description": "Systematic painting style using precise dots of pure pigment for optical color mixing on canvas."
     }
   ]
 };

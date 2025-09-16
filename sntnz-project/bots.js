@@ -230,7 +230,7 @@ async function writeChapter({ isContinuing, targetWordCount, currentWritingStyle
 
   // --- 2. Assemble the final prompt ---
   const finalPrompt = `
-    You are a master storyteller.
+    You are a master storyteller telling creative tales, with a subtile surreal tone.
     ${taskDescription}
     Style Guide (adhere to this strictly):
     - Style Name: ${currentWritingStyle.name}
@@ -448,6 +448,8 @@ async function runBotSubmission(state) {
  * @returns {Promise<string|null>} The public URL of the uploaded image, or null on failure.
  */
 async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduction) {
+  let finalPrompt; // Declare here to make it available throughout the function scope
+
   try {
     logger.info('[image] Starting image generation process...');
 
@@ -463,55 +465,47 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     if (recentlyUsedImageStyles.length > 4) recentlyUsedImageStyles.shift();
     logger.info({ style: selectedStyle.name }, '[image] Selected style');
 
-    // --- Step 2: Summarize Text with Gemini for a better visual prompt ---
-    let summarized = text.trim();
-    const wordCount = summarized.split(/\s+/).length;
+    // --- Step 2: Generate the Full Image Prompt with Gemini ---
+    try {
+      const sceneGenPrompt = `
+        Read the following story excerpt and synthesize its essence into a short scene description for an image generator.\n
 
-    if (wordCount > 100) {
-      try {
-        const summarizationPrompt = `
-          Summarize the following text into a concise paragraph of MINIMUM 30-50 words.
-          Omit dialogue, and names. Focus on visuals, light, colors, scenary, with a surreal accent.
-          Output only the summarized text.
-          TEXT: "${summarized}"`.trim();
-        const result = await textModelFlash.generateContent({
-          contents: [{ role: "user", parts: [{ text: summarizationPrompt }] }],
-          generationConfig: { maxOutputTokens: 512, temperature: 0.6 }
-        });
-        const rawSummary = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
-        if (rawSummary) {
-          summarized = rawSummary.replace(/["“”]/g, '');
-          logger.info({ summarized }, '[image] Summarized description for Imagen');
-        }
-      } catch (e) {
-        logger.warn({ err: e }, '[image] Summarization failed, using original text');
+        - Omit dialogue and character names.\n
+        - Focus on scenery, light, mood.\n
+        - Make short sentences.\n
+        - CTRITICAL: The whole output MUST NOT exceed 40 words.\n\n
+
+        STORY EXCERPT:\n\n
+        """
+        ${text}
+        """
+      `.trim();
+
+      const result = await textModelFlash.generateContent({
+        contents: [{ role: "user", parts: [{ text: sceneGenPrompt }] }],
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.8 },
+      });
+
+      const sceneDescription = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
+
+      if (!sceneDescription) {
+        throw new Error('AI failed to generate the scene description.');
       }
+
+      // --- Step 3: Manually construct the full prompt in code ---
+      const mainPrompt = `A POWERFUL ${selectedStyle.name} artwork depicting: "${sceneDescription}". Emphasize these STYLE details: "${selectedStyle.description}".`;
+      const negativePrompt = `AVOID these elements: text, words, letters, photorealism, 3D render, cartoon, vignetting, dark, muddy, underexposed.`;
+
+      finalPrompt = `${mainPrompt}\n\n${negativePrompt}`;
+
+      logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
+
+    } catch (e) {
+      logger.error({ err: e }, '[image] Failed to generate the final image prompt');
+      return null; // Halt execution if prompt generation fails
     }
 
-    // --- Step 3: Construct the Final Imagen Prompt ---
-    const finalPrompt = [
-      `DEPICT THIS SCENE:`,
-      `${summarized}`,
-      ``,
-      `IN THIS STYLE:`,
-      `— render strictly as ${selectedStyle.name}:`,
-      `- Medium/Surface: ${(selectedStyle.surface || []).join(', ')}`,
-      `- Technique: ${selectedStyle.enforce.join(', ') || selectedStyle.description}`,
-      `- Palette: ${(selectedStyle.palette || []).join(', ')}`,
-      `- Quality: fine art, masterpiece, award-winning, high detail, intricate.`,
-      ``,
-      `CRITICAL:`,
-      `- YOU MUST NOT ADD ANY TEXT ON THE IMAGE. `,
-      `- RESPECT these keywords: Surreal, Abstract, Graphical , Allegory, Dreamlike, Oneiric.`,
-      `- PREFER CLEAR BRIGHT RENDER, AVOID vignetting, dark, muddy, or underexposed scenes. `,
-      `- AVOID photorealistic and 3D render aspects.`,
-      `- AVOID cartoon style. `,
-      `- the image must fill the entire square canvas.`,
-    ].join('\n');
-    logger.info({ finalPrompt: finalPrompt }, '[image] Final Imagen prompt prepared.');
-
-
-    // --- Step 4: Call the Imagen API ---
+    // --- Step 3: Call the Imagen API ---
     const project = process.env.GOOGLE_CLOUD_PROJECT_ID;
     const region = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     const modelId = constants.IMAGEN_MODEL || 'imagen-3.0-generate-001';
@@ -526,7 +520,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       parameters: {
         sampleCount: 1,
         aspectRatio: "1:1",
-        guidanceScale: 20.0}
+      }
     };
     const predictRes = await fetch(predictUrl, {
       method: 'POST',
@@ -544,39 +538,32 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     }
     logger.info('[image] Image data received from Vertex AI.');
 
-    // --- Step 5: Create Watermark and Composite Image ---
+    // --- Step 4: Create Watermark and Composite Image ---
     const imageBuffer = Buffer.from(imageDataBase64, 'base64');
-
-    // Create a text watermark as an SVG image in a buffer.
-    // This gives you full control over font, size, color, and opacity.
-      const watermarkSvg = `
-        <svg width="1000" height="50">
-          <text x="50%" y="85%" text-anchor="middle"
-          font-family="IBM Plex Mono, monospace" font-size="20" fill="rgba(255, 153, 51, 0.71)">
-          ${chapterTitle} - sntnz.com
-          </text>
-        </svg>
-      `;
+    const watermarkSvg = `
+      <svg width="1000" height="50">
+        <text x="50%" y="85%" text-anchor="middle"
+        font-family="IBM Plex Mono, monospace" font-size="20" fill="rgba(255, 153, 51, 0.71)">
+        ${chapterTitle} - sntnz.com
+        </text>
+      </svg>
+    `;
     const watermarkBuffer = Buffer.from(watermarkSvg);
-
-    // Use sharp to composite the watermark onto the generated image.
     const watermarkedImageBuffer = await sharp(imageBuffer)
-      .composite([
-        {
-          input: watermarkBuffer,
-          gravity: 'south', // Positions the watermark in the bottom-right corner
-        },
-      ])
+      .composite([{
+        input: watermarkBuffer,
+        gravity: 'south',
+      }, ])
       .toBuffer();
 
-    // --- Step 6: Upload Image to Google Cloud Storage ---
+    // --- Step 5: Upload Image to Google Cloud Storage ---
     const folder = isProduction ? 'images' : 'dev-images';
     const fileName = `${folder}/sntnz-chapter-${chapterHash}.png`;
     const file = bucket.file(fileName);
 
     await file.save(watermarkedImageBuffer, {
       metadata: { contentType: 'image/png' },
-      resumable: false // Use simpler upload for smaller files.
+      resumable: false,
     });
 
     const publicUrl = file.publicUrl();
@@ -584,8 +571,8 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     return publicUrl;
 
   } catch (err) {
-    logger.error({ err }, '[image] Full image generation pipeline failed');
-    return null; // Return null to indicate failure.
+    logger.error({ err: err }, '[image] Full image generation pipeline failed');
+    return null;
   }
 }
 
