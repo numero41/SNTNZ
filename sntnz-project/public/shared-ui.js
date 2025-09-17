@@ -86,6 +86,14 @@ export function addTooltipEvents(containerElement, tooltipElement) {
   // Exit early if the required elements don't exist in the DOM.
   if (!containerElement || !tooltipElement) return;
 
+  // Define a reusable function to hide the tooltip.
+  const hideTooltip = () => {
+    tooltipElement.classList.remove('visible');
+  };
+
+  window.addEventListener('scroll', hideTooltip, { passive: true });
+  containerElement.addEventListener('scroll', hideTooltip, { passive: true });
+
   // --- Listener to SHOW the Tooltip ---
   // We add a single listener to the parent container. This is more efficient
   // than adding a listener to every single word span.
@@ -93,97 +101,87 @@ export function addTooltipEvents(containerElement, tooltipElement) {
     // Find the word that was clicked on, if any.
     const wordSpan = e.target.closest('.word');
 
-    // If a word was indeed clicked...
-    if (wordSpan) {
-      // --- 1. Extract Data ---
-      // Get all the data-* attributes from the clicked element.
-      const data = wordSpan.dataset;
-      const date = new Date(parseInt(data.ts)); // Convert timestamp string to a Date object.
-
-      // --- 2. Format Date and Time ---
-      // Define a consistent format for displaying timestamps.
-      const dateFormatOptions = {
-        year: '2-digit',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false, // Use 24-hour format for clarity.
-      };
-
-      // Format the date for both the user's local timezone and UTC.
-      // Showing both helps provide context for a global audience.
-      const localTimeString = date.toLocaleString(undefined, dateFormatOptions);
-      const utcTimeString = date.toLocaleString(undefined, {
-        ...dateFormatOptions,
-        timeZone: 'UTC',
-      });
-
-      // --- 3. Populate Tooltip Content ---
-      tooltipElement.innerHTML = '';
-      const authorLine = document.createElement('div');
-      const authorStrong = document.createElement('strong');
-      authorStrong.textContent = 'Author: ';
-      authorLine.appendChild(authorStrong);
-      authorLine.appendChild(document.createTextNode(data.username)); // Securely append username as text
-
-      const timeLocalLine = document.createElement('div');
-      timeLocalLine.innerHTML = `<strong>Time (Local):</strong> ${localTimeString}`; // Safe, not user content
-
-      const timeUtcLine = document.createElement('div');
-      timeUtcLine.innerHTML = `<strong>Time (UTC):</strong> ${utcTimeString}`; // Safe, not user content
-
-      const votesLine = document.createElement('div');
-      votesLine.innerHTML = `<strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)`; // Safe, not user content
-
-      // Append all lines to the tooltip
-      tooltipElement.appendChild(authorLine);
-      tooltipElement.appendChild(timeLocalLine);
-      tooltipElement.appendChild(timeUtcLine);
-      tooltipElement.appendChild(votesLine);
-
-      // --- 4. Calculate Tooltip Position ---
-      // Get dimensions and position needed for calculations.
-      const tooltipWidth = tooltipElement.offsetWidth;
-      const windowWidth = window.innerWidth;
-      const margin = 15; // A small margin to keep the tooltip from touching the window edges.
-
-      // Center the tooltip horizontally based on the mouse click position (e.pageX).
-      let newLeft = e.pageX - (tooltipWidth / 2);
-      // Position the tooltip just below the mouse click position (e.pageY).
-      let newTop = e.pageY + margin;
-
-      // --- 5. Perform Boundary Checks ---
-      // These checks prevent the tooltip from rendering off-screen.
-      // If it's too far left, push it to the right.
-      if (newLeft < margin) {
-        newLeft = margin;
-      }
-      // If it's too far right, push it to the left.
-      if (newLeft + tooltipWidth > windowWidth - margin) {
-        newLeft = windowWidth - tooltipWidth - margin;
-      }
-
-      // --- 6. Apply Styles and Show Tooltip ---
-      tooltipElement.style.left = `${newLeft}px`;
-      tooltipElement.style.top = `${newTop}px`;
-      tooltipElement.classList.add('visible');
+    // If the click was NOT on a word, hide the tooltip and do nothing else.
+    if (!wordSpan) {
+      hideTooltip();
+      return;
     }
+
+    // --- 1. Extract Data ---
+    // Get all the data-* attributes from the clicked element.
+    const data = wordSpan.dataset;
+    const date = new Date(parseInt(data.ts)); // Convert timestamp string to a Date object.
+
+    // --- 2. Format Date and Time ---
+    // Define a consistent format for displaying timestamps.
+    const dateFormatOptions = {
+      year: '2-digit',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false, // Use 24-hour format for clarity.
+    };
+
+    // Format the date for both the user's local timezone and UTC.
+    // Showing both helps provide context for a global audience.
+    const localTimeString = date.toLocaleString(undefined, dateFormatOptions);
+    const utcTimeString = date.toLocaleString(undefined, {
+      ...dateFormatOptions,
+      timeZone: 'UTC',
+    });
+
+    // --- 3. Populate Tooltip Content ---
+    tooltipElement.innerHTML = '';
+    const authorLine = document.createElement('div');
+    const authorStrong = document.createElement('strong');
+    authorStrong.textContent = 'Author: ';
+    authorLine.appendChild(authorStrong);
+    authorLine.appendChild(document.createTextNode(data.username)); // Securely append username as text
+
+    const timeLocalLine = document.createElement('div');
+    timeLocalLine.innerHTML = `<strong>Time (Local):</strong> ${localTimeString}`; // Safe, not user content
+
+    const timeUtcLine = document.createElement('div');
+    timeUtcLine.innerHTML = `<strong>Time (UTC):</strong> ${utcTimeString}`; // Safe, not user content
+
+    const votesLine = document.createElement('div');
+    votesLine.innerHTML = `<strong>Votes:</strong> ${data.count} / ${data.total} (${data.pct}%)`; // Safe, not user content
+
+    // Append all lines to the tooltip
+    tooltipElement.appendChild(authorLine);
+    tooltipElement.appendChild(timeLocalLine);
+    tooltipElement.appendChild(timeUtcLine);
+    tooltipElement.appendChild(votesLine);
+
+    // --- 4. Calculate Tooltip Position ---
+    // Get dimensions and position needed for calculations.
+    const tooltipWidth = tooltipElement.offsetWidth;
+    const tooltipHeight = tooltipElement.offsetHeight;
+    const windowWidth = window.innerWidth;
+    const margin = 15; // A small margin to keep the tooltip from touching the window edges.
+
+    // Center the tooltip horizontally based on the mouse click position (e.pageX).
+    let newLeft = e.pageX - (tooltipWidth / 2);
+    // Position the tooltip just below the mouse click position (e.pageY).
+    let newTop = e.pageY - tooltipHeight - margin;
+
+    // --- 5. Perform Boundary Checks ---
+    // These checks prevent the tooltip from rendering off-screen.
+    // If it's too far left, push it to the right.
+    if (newLeft < margin) {
+      newLeft = margin;
+    }
+    // If it's too far right, push it to the left.
+    if (newLeft + tooltipWidth > windowWidth - margin) {
+      newLeft = windowWidth - tooltipWidth - margin;
+    }
+
+    // --- 6. Apply Styles and Show Tooltip ---
+    tooltipElement.style.left = `${newLeft}px`;
+    tooltipElement.style.top = `${newTop}px`;
+    tooltipElement.classList.add('visible');
   });
-
-  // --- Listener to HIDE the Tooltip ---
-  // This listener is attached to the entire document.
-  document.addEventListener('click', (e) => {
-    // If the user clicks anywhere that is NOT a word, hide the tooltip.
-    if (!e.target.closest('.word') && tooltipElement) {
-      tooltipElement.classList.remove('visible');
-    }
-  }, true); // The 'true' argument is important!
-  // It sets the listener to use the "capture" phase. This means it fires
-  // on the way DOWN the DOM tree, before the event reaches the target.
-  // This ensures that when you click outside a word, this "hide" logic
-  // runs before any other click listener (like our "show" logic) can fire,
-  // preventing the tooltip from flickering.
 }
 
 /**

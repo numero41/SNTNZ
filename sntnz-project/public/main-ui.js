@@ -483,7 +483,7 @@ export function updateScrollEffects() {
   const buffer = 5; // A small buffer for detecting scroll position
 
   // --- Manage infinite scroll and UI fades ---
-  if (el.scrollTop < 100 && !isBooting) {
+  if (el.scrollTop < 200 && !isBooting) {
     loadMoreHistory();
   }
   const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= buffer;

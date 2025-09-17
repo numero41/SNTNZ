@@ -1028,18 +1028,16 @@ io.on('connection', async (socket) => {
     // 1. Find the current live (unsealed) chapter.
     const liveChapter = await chaptersCollection.findOne({ hash: null });
 
-    // 2. Find the most recent sealed chapter to show before the live one.
-    const previousSealedChapter = await chaptersCollection.findOne(
+    // 2. Find the most recent sealed chapters to show before the live one.
+    const previousSealedChapters = await chaptersCollection.find(
       { hash: { $ne: null } },
       { sort: { ts: -1 } }
-    );
+    ).limit(constants.NUM_INITIAL_CHAPTERS).toArray();
 
-    // 3. Add the previous sealed chapter to our payload if it exists.
-    // The 'words' array is already embedded in sealed chapters.
-    if (previousSealedChapter) {
-      initialChapters.push(previousSealedChapter);
-      // This will be the default image unless a newer one is found.
-      initialImageUrl = previousSealedChapter.imageUrl || null;
+    // 3. Add the previous sealed chapters to our payload if they exist.
+    // We reverse them to ensure they are in chronological order (oldest to newest).
+    if (previousSealedChapters.length > 0) {
+      initialChapters.push(...previousSealedChapters.reverse());
     }
 
     // 4. If a live chapter exists, fetch all its words and add it.

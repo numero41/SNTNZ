@@ -49,6 +49,7 @@ module.exports = {
   // --- Client UX ---
   INPUT_MAX_CHARS: 25,
   ANONYMOUS_MAX_SUB_PER_HOUR: 10,
+  NUM_INITIAL_CHAPTERS: 3,
 
   // --- Bot / seeding ---
   ANONYMOUS_NAME: "Anonymous",

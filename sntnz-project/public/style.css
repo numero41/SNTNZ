@@ -204,12 +204,21 @@ body {
   padding-right: 1rem;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
 }
 
 /* Wrapper for fade masks on scrollable content */
 .text-wrapper {
   position: relative;
+}
+
+/* Load more chapters */
+.new-content-wrapper {
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.new-content-wrapper.visible {
+  opacity: 1;
 }
 
 /* Top fade mask */
