@@ -607,10 +607,21 @@ function addNavEvents() {
   btnOpenHistory.addEventListener('click', () => {
     window.location.href = '/history.html';
   });
-  // The scroll effects need to be updated continuously as the user scrolls.
-  // Use debounce to ensure the final scroll position is always processed.
-  const debouncedScrollHandler = debounce(updateScrollEffects, 100); // A 100ms delay feels smooth
-  currentTextContainer.addEventListener('scroll', debouncedScrollHandler);
+  // --- Robust Scroll Stop Detection ---
+  let scrollStopTimer;
+
+  currentTextContainer.addEventListener('scroll', () => {
+    // While scrolling, continuously clear the previous timer.
+    clearTimeout(scrollStopTimer);
+
+    // Set a new timer. If 66ms passes without another scroll event,
+    // we assume scrolling has stopped and run our update function.
+    // This value is a good balance, feeling faster than 100ms but avoiding
+    // false positives during high-speed scrolling.
+    scrollStopTimer = setTimeout(() => {
+        updateScrollEffects();
+    }, 66);
+  }, { passive: true }); // { passive: true } is a performance optimization
 }
 
 /**
