@@ -28,8 +28,9 @@ let chaptersCollection;
  * This will overwrite existing images in Google Cloud Storage and update the database record.
  * @param {number[]} chapterNumbers - An array of chapter numbers to process (e.g., [5, 12, 23]).
  * @param {boolean} useProductionBucket - Flag to determine which GCS folder to use ('images' vs 'dev-images').
+ * @param {boolean} postOnSocials - Flag to determine if the chapter should be posted to social media after regeneration.
  */
-async function regenerateChapterImages(chapterNumbers = [], useProductionBucket = false) {
+async function regenerateChapterImages(chapterNumbers = [], useProductionBucket = false, postOnSocials = false) {
   if (!Array.isArray(chapterNumbers) || chapterNumbers.length === 0) {
     logger.info('No chapter numbers provided. Exiting regeneration task.');
     return;
@@ -81,6 +82,15 @@ async function regenerateChapterImages(chapterNumbers = [], useProductionBucket 
             { $set: { imageUrl: newImageUrl } }
           );
           logger.info({ chapterTitle: title, newImageUrl }, 'Successfully regenerated image and updated database.');
+
+          // 5. Post the chapter to social media if the flag is true
+          if (postOnSocials && newImageUrl) {
+            const shareableUrl = `https://www.sntnz.com/chapter/${hash}`;
+            logger.info({ chapterTitle: title }, 'Posting to social media...');
+            await postEverywhere(text, shareableUrl, newImageUrl);
+            logger.info({ chapterTitle: title }, 'Successfully posted to social media.');
+          }
+
         } else {
           logger.warn({ chapterTitle: title }, 'generateAndUploadImage returned null. Database not updated.');
         }
@@ -92,7 +102,7 @@ async function regenerateChapterImages(chapterNumbers = [], useProductionBucket 
   } catch (error) {
     logger.error({ err: error }, 'The image regeneration process failed.');
   } finally {
-    // 5. Ensure the database connection is closed
+    // 6. Ensure the database connection is closed
     await client.close();
     logger.info('[db] MongoDB connection closed.');
   }
@@ -118,12 +128,10 @@ async function regenerateChapterImages(chapterNumbers = [], useProductionBucket 
 
   // --- REGENERATE IMAGES FOR SPECIFIC CHAPTERS ---
   // Provide a list of chapter numbers you want to process.
-  const chaptersToRegenerate = [7];
+  const chaptersToRegenerate = [9];
+  const useProductionBucket = true;
+  const postOnSocials = true;
 
-  // Set to `true` to use the production 'images' bucket.
-  // Set to `false` to use the 'dev-images' bucket.
-  const useProductionBucket = false;
-
-  await regenerateChapterImages(chaptersToRegenerate, useProductionBucket);
+  await regenerateChapterImages(chaptersToRegenerate, useProductionBucket, postOnSocials);
 
 })();
