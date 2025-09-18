@@ -118,11 +118,11 @@ async function regenerateChapterImages(chapterNumbers = [], useProductionBucket 
 
   // --- REGENERATE IMAGES FOR SPECIFIC CHAPTERS ---
   // Provide a list of chapter numbers you want to process.
-  const chaptersToRegenerate = [9];
+  const chaptersToRegenerate = [7];
 
   // Set to `true` to use the production 'images' bucket.
   // Set to `false` to use the 'dev-images' bucket.
-  const useProductionBucket = true;
+  const useProductionBucket = false;
 
   await regenerateChapterImages(chaptersToRegenerate, useProductionBucket);
 

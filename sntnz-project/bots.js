@@ -448,8 +448,6 @@ async function runBotSubmission(state) {
  * @returns {Promise<string|null>} The public URL of the uploaded image, or null on failure.
  */
 async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduction) {
-  let finalPrompt; // Declare here to make it available throughout the function scope
-
   try {
     logger.info('[image] Starting image generation process...');
 
@@ -466,14 +464,18 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     logger.info({ style: selectedStyle.name }, '[image] Selected style');
 
     // --- Step 2: Generate the Full Image Prompt with Gemini ---
+    let sceneDescription;
     try {
       const sceneGenPrompt = `
-        Read the following story excerpt and synthesize its essence into a short scene description for an image generator.\n
+        Read the following story excerpt and synthesize its essence into a description for an image generator.\n
+        Add explanations and instructions in order to use this style: "${selectedStyle.name}".\n
+        Emphasize these STYLE details: "${selectedStyle.description}".\n
+        The result should be powerful, bright and very graphical.
 
         - Omit dialogue and character names.\n
-        - Focus on scenery, bright light, mood.\n
-        - Make short sentences.\n
-        - CTRITICAL: The whole output MUST NOT exceed 40 words.\n\n
+        - Focus on scenery, bright light, mood, graphics.\n
+        - The whole output should not exceed 200 words.\n
+        - CRITICAL: The image should avoid: text, words, letters, photorealism, 3D render, cartoon, vignetting, dark, muddy, underexposed.\n\n
 
         STORY EXCERPT:\n\n
         """
@@ -481,24 +483,18 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
         """
       `.trim();
 
-      const result = await textModelFlash.generateContent({
+      const result = await textModelPro.generateContent({
         contents: [{ role: "user", parts: [{ text: sceneGenPrompt }] }],
-        generationConfig: { maxOutputTokens: 2048, temperature: 0.8 },
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.6 },
       });
 
-      const sceneDescription = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
+      sceneDescription = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
 
       if (!sceneDescription) {
         throw new Error('AI failed to generate the scene description.');
       }
 
-      // --- Step 3: Manually construct the full prompt in code ---
-      const mainPrompt = `A POWERFUL and clear artwork in this style: "${selectedStyle.name}". Depicting this scene: "${sceneDescription}". Emphasize these STYLE details: "${selectedStyle.description}".`;
-      const negativePrompt = `AVOID these elements: text, words, letters, photorealism, 3D render, cartoon, vignetting, dark, muddy, underexposed.`;
-
-      finalPrompt = `${mainPrompt}\n\n${negativePrompt}`;
-
-      logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
+      logger.info({ imagePrompt: sceneDescription }, '[image] Final Imagen prompt prepared.');
 
     } catch (e) {
       logger.error({ err: e }, '[image] Failed to generate the final image prompt');
@@ -516,7 +512,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     const predictUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/publishers/google/models/${modelId}:predict`;
 
     const predictBody = {
-      instances: [{ prompt: finalPrompt }],
+      instances: [{ prompt: sceneDescription }],
       parameters: {
         sampleCount: 1,
         aspectRatio: "1:1",
