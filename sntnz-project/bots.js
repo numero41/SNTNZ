@@ -235,6 +235,7 @@ async function writeChapter({ isContinuing, targetWordCount, currentWritingStyle
     Style Guide (adhere to this strictly):
     - Style Name: ${currentWritingStyle.name}
     - Enforce These Elements: ${(currentWritingStyle.enforce || []).join(', ')}
+    - Avoid comedy or trivial tone/topics.
     ${contextBlock}
     ${criticalInstruction}
   `.trim();
