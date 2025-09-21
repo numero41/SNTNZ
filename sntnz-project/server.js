@@ -55,6 +55,7 @@ const { initSocial, postEverywhere, checkAndRefreshFbLongToken, formatPostText }
 const app = express();
 
 let server;
+const isProduction = process.env.NODE_ENV === 'production';
 
 if (isProduction) {
   // --- PRODUCTION SERVER (HTTP) ---
@@ -87,7 +88,6 @@ server.headersTimeout = 7000;
 // Express to trust the X-Forwarded-* headers to correctly identify the client's IP.
 if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
 
-const isProduction = process.env.NODE_ENV === 'production';
 const profanityFilter = new AllProfanity();
 
 // Define the allowed origins for CORS. This is a crucial security measure.
