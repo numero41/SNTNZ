@@ -54,14 +54,30 @@ const { initSocial, postEverywhere, checkAndRefreshFbLongToken, formatPostText }
 // ============================================================================
 const app = express();
 
-// Secure server files
-const options = {
-  key: fs.readFileSync('key.pem'),
-  cert: fs.readFileSync('cert.pem')
-};
+let server;
 
-// Create an HTTPS server
-const server = https.createServer(options, app);
+if (isProduction) {
+  // --- PRODUCTION SERVER (HTTP) ---
+  // On Render, we run a standard HTTP server.
+  // Render's servers handle the SSL termination (HTTPS) for us.
+  server = http.createServer(app);
+  logger.info('[server] Running in production mode (HTTP).');
+
+} else {
+  // --- DEVELOPMENT SERVER (HTTPS) ---
+  // On our local machine, we use the self-signed certificates.
+  try {
+    const options = {
+      key: fs.readFileSync('key.pem'),
+      cert: fs.readFileSync('cert.pem')
+    };
+    server = https.createServer(options, app);
+    logger.info('[server] Running in development mode (HTTPS).');
+  } catch (err) {
+    logger.error({ err }, '[server] Could not start HTTPS server. Make sure key.pem and cert.pem are present.');
+    process.exit(1);
+  }
+}
 
 // Optimizes server for faster shutdown under heavy load by setting keep-alive timeouts.
 server.keepAliveTimeout = 5000;
