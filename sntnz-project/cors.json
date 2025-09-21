@@ -1,6 +1,6 @@
 [
   {
-    "origin": ["http://localhost:3000", "https://www.sntnz.com"],
+    "origin": ["https://localhost:3000", "https://www.sntnz.com"],
     "method": ["GET"],
     "maxAgeSeconds": 3600
   }

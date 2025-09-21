@@ -24,6 +24,8 @@ require('dotenv').config();
 // --- Core Node.js & Express Modules ---
 const express = require('express');         // The web framework for routing and middleware.
 const http = require('http');               // The raw Node.js HTTP server that Express and Socket.IO use.
+const https = require('https');
+const fs = require('fs');
 const { Server } = require('socket.io');    // The real-time WebSocket communication library.
 const crypto = require('crypto');           // Node.js module for cryptographic functions like hashing.
 const cron = require('node-cron');          // A task scheduler for running jobs at specific times (e.g., sealing chapters).
@@ -51,7 +53,15 @@ const { initSocial, postEverywhere, checkAndRefreshFbLongToken, formatPostText }
 // --- CONFIGURATION & SERVER SETUP ---
 // ============================================================================
 const app = express();
-const server = http.createServer(app);
+
+// Secure server files
+const options = {
+  key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem')
+};
+
+// Create an HTTPS server
+const server = https.createServer(options, app);
 
 // Optimizes server for faster shutdown under heavy load by setting keep-alive timeouts.
 server.keepAliveTimeout = 5000;
@@ -65,7 +75,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const profanityFilter = new AllProfanity();
 
 // Define the allowed origins for CORS. This is a crucial security measure.
-const ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+const ORIGINS = (process.env.CORS_ORIGIN || 'https://localhost:3000')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);

@@ -157,19 +157,34 @@ function initializeAuth(collection) {
  * @param {function} next - The next middleware function in the stack.
  */
 function checkUsername(req, res, next) {
-  // These paths should always be accessible, regardless of login state or username.
-  const allowedPaths = ['/username.html', '/api/username', '/config', '/auth/google', '/logout'];
-  if (allowedPaths.some(path => req.path.startsWith(path))) {
+  // Allow requests for static assets to pass through without a username check.
+  if (/\.(css|js|png|ico|svg|html)$/.test(req.path) && !req.path.startsWith('/username.html')) {
     return next();
   }
 
-  // If the user is authenticated but has not set a username, redirect them.
+  // --- Case 1: The user is trying to access the username page itself. ---
+  if (req.path.startsWith('/username.html')) {
+    // If they are logged in, let them access the page.
+    if (req.isAuthenticated()) {
+      return next();
+    }
+    // If they are NOT logged in, they shouldn't be here. Send them to login.
+    return res.redirect('/login.html');
+  }
+
+  // --- Case 2: Allow public and auth-related paths to always pass through. ---
+  const publicPaths = ['/api/username', '/config', '/auth/google', '/logout', '/login.html'];
+  if (publicPaths.some(path => req.path.startsWith(path))) {
+    return next();
+  }
+
+  // --- Case 3: The user is accessing another part of the site. ---
+  // If they are logged in but have NOT set a username, redirect them to the username page.
   if (req.isAuthenticated() && !req.user.username) {
     return res.redirect('/username.html');
   }
 
-  // Otherwise, the user is either not logged in (which is fine for public pages)
-  // or is logged in and has a username. Proceed to the requested route.
+  // Otherwise, proceed.
   next();
 }
 
