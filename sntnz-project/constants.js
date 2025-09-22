@@ -60,7 +60,7 @@ module.exports = {
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
 
   // --- MODELS ---
-  IMAGEN_MODEL:'imagen-3.0-generate-001',
+  IMAGEN_MODEL:'imagen-4.0-ultra-generate-001',
   GEMINI_MODEL_LITE:'gemini-2.5-flash-lite',
   GEMINI_MODEL_FLASH:'gemini-2.5-flash',
   GEMINI_MODEL_PRO:'gemini-2.5-pro',
@@ -256,124 +256,136 @@ module.exports = {
   // --- Image styles ---
   "IMAGE_STYLES": [
     {
-      "name": "Moebius, Manara, Pratt (Ligne Claire)",
-      "description": "Clean, uniform ink lines, no shadows."
+      "name": "Cinematic Symmetry (Kubrick, Anderson)",
+      "description": "Cinematic grandeur and meticulous composition. A scene with perfect one-point perspective and striking symmetry, evoking a sense of profound order and visual storytelling."
     },
     {
-      "name": "Kubrick, Wes Anderson, Greenaway (Symmetry)",
-      "description": "Perfect one-point perspective, cinematic."
+      "name": "Masterful Ukiyo-e Woodblock Art",
+      "description": "Elegant compositions with expressive, flowing outlines and harmonious flat color fields, refined beauty in the style of Japanese prints."
     },
     {
-      "name": "Hokusai, Hiroshige, Utamaro (Ukiyo-e)",
-      "description": "Bold outlines, flat colors, graphic forms."
+      "name": "Elegant Art Deco Poster",
+      "description": "Luxurious and elegant design. Emphasize sleek, streamlined geometry, lavish ornamentation, capturing the glamour of the Jazz Age."
     },
     {
-      "name": "Bernhard, Erdt, Hohlwein (Plakatstil)",
-      "description": "Bold, simple subjects, flat color."
+      "name": "Organic Art Nouveau Poster",
+      "description": "Characterized by organic, flowing, and sensuous 'whiplash' curves. The design is highly ornamental and decorative."
     },
     {
-      "name": "Rodchenko, Lissitzky, Stepanova (Constructivism)",
-      "description": "Geometric shapes, stark diagonals, limited palette."
+      "name": "Master Technical Engraving",
+      "description": "An intricate masterpiece of technical illustration. Scientific elegance."
     },
     {
-      "name": "Cassandre, Lempicka, Erté (Art Deco)",
-      "description": "Sleek, symmetrical geometry, metallic sheen."
+      "name": "Ancient Egyptian Fresco",
+      "description": "A formal, hieratic scene with crisp, clear black outlines and a palette of rich, flat mineral pigments."
     },
     {
-      "name": "Mucha, Beardsley, Toulouse-Lautrec (Art Nouveau)",
-      "description": "Flowing, ornamental 'whiplash' linework."
+      "name": "Vibrant Mesoamerican Codex",
+      "description": "Vibrant and mythological art with bold, confident contour lines, flat fields of intense color."
     },
     {
-      "name": "Müller-Brockmann, Hofmann, Max Bill (Swiss Style)",
-      "description": "Clean, grid-based layout, sans-serif type."
+      "name": "Cinematic Film Noir",
+      "description": "A high-contrast, atmospheric black and white composition. Create a world of mystery, tension, and stylized beauty."
     },
     {
-      "name": "Da Vinci, Piranesi, Sant'Elia (Technical Drawing)",
-      "description": "Technical engraving, precise crosshatching."
+      "name": "Harmonious Bauhaus Design",
+      "description": "A clean, functional, and harmonious design. Create a sense of rational order and clarity."
     },
     {
-      "name": "Gothic Stained Glass",
-      "description": "Bold black leading, luminous jewel tones."
+      "name": "Neo-Futuristic Anime Aesthetic",
+      "description": "Hyper-detailed technical illustration with razor-sharp linework. Create a cinematic and atmospheric feel."
     },
     {
-      "name": "Egyptian Papyrus Hieroglyphs",
-      "description": "Crisp black outlines, mineral pigments."
+      "name": "Profound Minimalism",
+      "description": "A radically simplified composition using clean lines, bold geometric forms, and a masterful use of negative space."
     },
     {
-      "name": "Mesoamerican Codex",
-      "description": "Bold contour lines, flat color fields, glyphs."
+      "name": "Epic Fantasy Painting",
+      "description": "An epic, high-fantasy oil painting. Features powerful, dynamic figures, dramatic action, and a rich, painterly texture."
     },
     {
-      "name": "Rembrandt, Vermeer, Caravaggio (Chiaroscuro)",
-      "description": "Dramatic, high-contrast lighting."
+      "name": "Exquisite Mughal Miniature",
+      "description": "An exquisitely detailed painting. Utilize exceptionally fine, crisp brushwork and a rich palette of opaque watercolors with delicate patterns."
     },
     {
-      "name": "Alton, Lang, Welles (Film Noir)",
-      "description": "Stark black and white, hard-edged shadows."
+      "name": "Grand Neoclassicism",
+      "description": "A grand masterpiece with the clarity of classical forms. Features sharp, clean contours, dramatic, sculptural lighting."
     },
     {
-      "name": "Gropius, Moholy-Nagy, Bayer (Bauhaus)",
-      "description": "Geometric primitives, primary colors, order."
+      "name": "Dreamlike Symbolist Art",
+      "description": "A dreamlike, Symbolist vision. Rich, decadent color palette, and mysterious atmosphere."
     },
     {
-      "name": "Peter Max, Moscoso, Wes Wilson (Psychedelic Art)",
-      "description": "Swirling contours, vibrating bright colors."
+      "name": "Master Engraver's Print",
+      "description": "A masterful engraving in the style of Dürer or Doré. Use powerful, expressive ink lines and intricate crosshatching."
     },
     {
-      "name": "Otomo, Syd Mead, Oshii (Cyberpunk Anime)",
-      "description": "Technical line art, cel-shading, neon."
+      "name": "Dynamic Futurist Art",
+      "description": "A vibrant artwork capturing the sensation of dynamism, speed, and mechanical energy."
     },
     {
-      "name": "Stella, Judd, Vignelli (Minimalism)",
-      "description": "Clean lines, bold shapes, negative space."
+      "name": "De Stijl Geometric Abstraction",
+      "description": "An abstract composition of pure universal harmony. Use a strict grid of black lines with fields of primary colors and non-colors to achieve spiritual order and balance."
     },
     {
-      "name": "Frazetta, Vallejo, Bell (Fantasy Art)",
-      "description": "Dynamic figures, dramatic action, painted."
+      "name": "Soviet Constructivist Poster",
+      "description": "Revolutionary graphic design using stark geometric shapes, strong lines, and bold palettes. NO TEXT."
     },
     {
-      "name": "Mughal Miniature Detail",
-      "description": "Fine, crisp brushwork, opaque watercolors."
+      "name": "Brutalist Graphic Design",
+      "description": "A raw, monolithic, and imposing style. Features blocky, geometric forms and hard-edged shapes."
     },
     {
-      "name": "David, Ingres, Canova (Neoclassicism)",
-      "description": "Dramatic lighting, sharp contours, classical forms."
+      "name": "Hard-Edge Geometric Abstraction",
+      "description": "A composition with intense, flat fields of color. Shapes are defined by sharp, clean contours and abrupt transitions."
     },
     {
-      "name": "Goya, Kollwitz, Redon (Dark Expressionism)",
-      "description": "Dark, expressive, dramatic, high-contrast."
+      "name": "Technical Blueprint Schematic",
+      "description": "The clean, precise aesthetic of an architectural or engineering drawing. Crisp lines and detailed diagrams revealing inner workings."
     },
     {
-      "name": "Moreau, Böcklin, Klimt (Symbolism)",
-      "description": "Mythological subjects, intricate detail, rich color."
+      "name": "Mecha Concept Illustration",
+      "description": "Hyper-detailed illustration with machineries. A focus on sharp panel lines and angular silhouettes."
     },
     {
-      "name": "Blake, Dürer, Doré (Master Engravers)",
-      "description": "Mystical figures, strong ink lines, literary."
+      "name": "Chinese Poster Art",
+      "description": "Dynamic and idealized graphical style. Features bold figures and strong compositional lines, rendered with a powerful, illustrative quality."
     },
     {
-      "name": "Morris, Crane, Mackintosh (Arts & Crafts)",
-      "description": "Intricate organic patterns, medieval style."
+      "name": "Japanese Poster Art",
+      "description": "Dynamic and idealized graphical style. Features bold figures and strong compositional lines, rendered with a powerful, illustrative quality."
     },
     {
-      "name": "Klimt, Moser, Schiele (Vienna Secession)",
-      "description": "Ornate, decorative patterns, gold leaf."
+      "name": "Comic Book Art",
+      "description": "Vibrant, dynamic imagery inspired by classic comic books. Features bold outlines, strong action, and a palette of bright, flat colors."
     },
     {
-      "name": "Boccioni, Balla, Carrà (Futurism)",
-      "description": "Dynamic lines, speed, energy, geometric."
+      "name": "Ligne Claire Comic Style",
+      "description": "Clean, precise European comic art. Uniform black outlines define all elements, with flat, bright colors and no visible shading or hatching."
     },
     {
-      "name": "Mondrian, van Doesburg, Rietveld (De Stijl)",
-      "description": "Primary colors, black grid, geometric abstraction."
+      "name": "Dreamlike Aquarelle",
+      "description": "Soft, ethereal imagery rendered in watercolor."
     },
     {
-      "name": "Warhol, Lichtenstein, Haring (Pop Art)",
-      "description": "Bold outlines, Ben-Day dots, bright colors."
+      "name": "Dynamic Impasto Painting",
+      "description": "A style with thick, textured brushstrokes. Conveys a sense of energy and visible artistic process."
     },
     {
-      "name": "Medieval Illuminated Manuscript",
-      "description": "Decorative borders, gold leaf, flat colors."
+      "name": "Gouache Block Illustration",
+      "description": "Features the opaque, matte finish of gouache paint. Creates imagery with bold, flat layers of color that still retain a subtle, painterly quality."
+    },
+    {
+      "name": "Riso Print Effect",
+      "description": "Mimics the look of a Risograph print. Characterized by a limited, vibrant color palette, slight misalignments."
+    },
+    {
+      "name": "Clean Vector Illustration",
+      "description": "Modern, crisp, and clean. Built from smooth lines, perfect geometric shapes, and solid colors or smooth gradients."
+    },
+    {
+      "name": "80s 16-Bit Pixel Art",
+      "description": "A nostalgic, retro video game aesthetic. The image is constructed from visible square pixels and a purposefully limited color palette."
     }
   ]
 };

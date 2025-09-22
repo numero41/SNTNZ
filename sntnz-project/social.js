@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const constants = require('./constants');
 const logger = require('./logger');
+const sharp = require('sharp');
 
 let twitterClient;
 
@@ -78,9 +79,18 @@ async function postToX(fullText, shareableUrl, imageUrl) {
     // --- 2. Post to X (with or without image) ---
     if (imageUrl) {
       logger.info('[social] Starting post to X with image...');
+
       const imageResponse = await fetch(imageUrl);
       if (!imageResponse.ok) throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
-      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+      // --- Reduce image size for X ---
+      const originalImageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+      logger.info('[social] Optimizing image for X...');
+      const imageBuffer = await sharp(originalImageBuffer)
+        .resize(1200, 1200)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
       const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType: 'image/png' });
 
       await twitterClient.v2.tweet(finalCaption, { media: { media_ids: [mediaId] } });

@@ -469,14 +469,14 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     // --- Step 2: Generate the Full Image Prompt with Gemini ---
     try {
       const sceneGenPrompt = `
-        Read the following story excerpt and synthesize its essence into a short scene description.\n
+        Read the following story excerpt and synthesize its essence into a short scene description.
 
-        - Omit dialogue and character names.\n
-        - Focus on scenery, landscapes, creatures, light, mood.\n
-        - Make short sentences.\n
-        - CTRITICAL: The whole output MUST NOT exceed 50 words.\n\n
+        - Omit dialogue and character names.
+        - Focus on: lighting, creatures, objects, atmospheric effects, and light.
 
-        STORY EXCERPT:\n\n
+        - CRITICAL: The total output MUST NOT exceed 180 words.
+
+        STORY EXCERPT:
         """
         ${text}
         """
@@ -484,7 +484,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
 
       const result = await textModelPro.generateContent({
         contents: [{ role: "user", parts: [{ text: sceneGenPrompt }] }],
-        generationConfig: { maxOutputTokens: 2048, temperature: 0.8 },
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.6 },
       });
 
       const sceneDescription = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
@@ -494,11 +494,12 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       }
 
       // --- Step 3: Manually construct the full prompt in code ---
-      const mainPrompt = `A POWERFUL, clear, highly stylized, detailed, graphical artwork in this style: "${selectedStyle.name}". Depicting this scene: "${sceneDescription}".\n
-      Emphasize these STYLE details: "${selectedStyle.description}". Prefer abstract or surreal.`;
-      const negativePrompt = `CRITICAL: YOU MUST AVOID these elements: text, words, human characters, letters, photorealism, 3D render, cartoon, vignetting, dark, muddy, underexposed.`;
-
-      finalPrompt = `${mainPrompt}\n\n${negativePrompt}`;
+      finalPrompt = `An exhibition-quality POWERFUL fine art print.\n
+      Style: "${selectedStyle.name} (${selectedStyle.description})".\n
+      Scene: "${sceneDescription}".\n\n
+      CRITICAL INSTRUCTIONS:\n
+      YOU CAN IMPROVISE AND DEVIATE FROM THE PROVIDED STYLE IN ORDER TO ADAPT TO THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      DO NOT INCLUDE TEXT, WORDS, AND HUMAN CHARACTERS\n`;
 
       logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
 
@@ -506,11 +507,12 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       logger.error({ err: e }, '[image] Failed to generate the final image prompt');
       return null; // Halt execution if prompt generation fails
     }
+    console.log(finalPrompt);
 
     // --- Step 3: Call the Imagen API ---
     const project = process.env.GOOGLE_CLOUD_PROJECT_ID;
     const region = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-    const modelId = constants.IMAGEN_MODEL || 'imagen-3.0-generate-001';
+    const modelId = constants.IMAGEN_MODEL || 'imagen-4.0-generate-001';
 
     const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const client = await auth.getClient();
@@ -522,6 +524,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       parameters: {
         sampleCount: 1,
         aspectRatio: "1:1",
+        sampleImageSize: "2K"
       }
     };
     const predictRes = await fetch(predictUrl, {
@@ -543,9 +546,9 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     // --- Step 4: Create Watermark and Composite Image ---
     const imageBuffer = Buffer.from(imageDataBase64, 'base64');
     const watermarkSvg = `
-      <svg width="1000" height="50">
+      <svg width="2048" height="100">
         <text x="50%" y="85%" text-anchor="middle"
-        font-family="IBM Plex Mono, monospace" font-size="20" fill="rgba(255, 153, 51, 0.71)">
+        font-family="IBM Plex Mono, monospace" font-size="40" fill="rgba(255, 153, 51, 0.71)">
         ${chapterTitle} - sntnz.com
         </text>
       </svg>
