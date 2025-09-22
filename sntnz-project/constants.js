@@ -345,7 +345,7 @@ module.exports = {
     },
     {
       "name": "Comic Book Art",
-      "description": "Vibrant, dynamic imagery inspired by classic comic books. Features bold outlines, strong action, and a palette of bright, flat colors."
+      "description": "Vibrant, highly detailed, dynamic imagery inspired by classic comic books. Features bold outlines, strong action, and a palette of bright, flat colors."
     },
     {
       "name": "Ligne Claire Comic Style",
@@ -353,19 +353,7 @@ module.exports = {
     },
     {
       "name": "Dreamlike Aquarelle",
-      "description": "Soft, ethereal imagery rendered in watercolor."
-    },
-    {
-      "name": "Dynamic Impasto Painting",
-      "description": "A style with thick, textured brushstrokes. Conveys a sense of energy and visible artistic process."
-    },
-    {
-      "name": "Gouache Block Illustration",
-      "description": "Features the opaque, matte finish of gouache paint. Creates imagery with bold, flat layers of color that still retain a subtle, painterly quality."
-    },
-    {
-      "name": "Riso Print Effect",
-      "description": "Mimics the look of a Risograph print. Characterized by a limited, vibrant color palette, slight misalignments."
+      "description": "Soft, ethereal and highly detailed imagery rendered in watercolor."
     }
   ]
 };
