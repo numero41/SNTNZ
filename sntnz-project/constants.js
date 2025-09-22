@@ -60,7 +60,7 @@ module.exports = {
   BOT_STOP_WORDS:['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'of', 'by', 'is', 'am', 'are', 'was', 'were', 'his', 'her', 'its', 'like'],
 
   // --- MODELS ---
-  IMAGEN_MODEL:'imagen-4.0-ultra-generate-001',
+  IMAGEN_MODEL:'imagen-3.0-generate-001',
   GEMINI_MODEL_LITE:'gemini-2.5-flash-lite',
   GEMINI_MODEL_FLASH:'gemini-2.5-flash',
   GEMINI_MODEL_PRO:'gemini-2.5-pro',
@@ -324,20 +324,8 @@ module.exports = {
       "description": "A vibrant artwork capturing the sensation of dynamism, speed, and mechanical energy."
     },
     {
-      "name": "De Stijl Geometric Abstraction",
-      "description": "An abstract composition of pure universal harmony. Use a strict grid of black lines with fields of primary colors and non-colors to achieve spiritual order and balance."
-    },
-    {
       "name": "Soviet Constructivist Poster",
       "description": "Revolutionary graphic design using stark geometric shapes, strong lines, and bold palettes. NO TEXT."
-    },
-    {
-      "name": "Brutalist Graphic Design",
-      "description": "A raw, monolithic, and imposing style. Features blocky, geometric forms and hard-edged shapes."
-    },
-    {
-      "name": "Hard-Edge Geometric Abstraction",
-      "description": "A composition with intense, flat fields of color. Shapes are defined by sharp, clean contours and abrupt transitions."
     },
     {
       "name": "Technical Blueprint Schematic",
@@ -361,7 +349,7 @@ module.exports = {
     },
     {
       "name": "Ligne Claire Comic Style",
-      "description": "Clean, precise European comic art. Uniform black outlines define all elements, with flat, bright colors and no visible shading or hatching."
+      "description": "Clean, precise and highly detailed European comic art. Uniform black outlines define all elements, with flat, bright colors and no visible shading or hatching."
     },
     {
       "name": "Dreamlike Aquarelle",
@@ -378,14 +366,6 @@ module.exports = {
     {
       "name": "Riso Print Effect",
       "description": "Mimics the look of a Risograph print. Characterized by a limited, vibrant color palette, slight misalignments."
-    },
-    {
-      "name": "Clean Vector Illustration",
-      "description": "Modern, crisp, and clean. Built from smooth lines, perfect geometric shapes, and solid colors or smooth gradients."
-    },
-    {
-      "name": "80s 16-Bit Pixel Art",
-      "description": "A nostalgic, retro video game aesthetic. The image is constructed from visible square pixels and a purposefully limited color palette."
     }
   ]
 };

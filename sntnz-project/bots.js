@@ -494,12 +494,12 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       }
 
       // --- Step 3: Manually construct the full prompt in code ---
-      finalPrompt = `An exhibition-quality POWERFUL fine art print.\n
+      finalPrompt = `An exhibition-quality POWERFUL fine art print, with many layers of intricate details.\n
       Style: "${selectedStyle.name} (${selectedStyle.description})".\n
       Scene: "${sceneDescription}".\n\n
       CRITICAL INSTRUCTIONS:\n
-      YOU CAN IMPROVISE AND DEVIATE FROM THE PROVIDED STYLE IN ORDER TO ADAPT TO THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
-      DO NOT INCLUDE TEXT, WORDS, AND HUMAN CHARACTERS\n`;
+      YOU CAN DEVIATE FROM THE PROVIDED STYLE IN ORDER TO ADAPT TO THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      DO NOT INCLUDE TEXT, WORDS, AND REALISTIC HUMAN CHARACTERS\n`;
 
       logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
 
@@ -512,7 +512,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     // --- Step 3: Call the Imagen API ---
     const project = process.env.GOOGLE_CLOUD_PROJECT_ID;
     const region = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-    const modelId = constants.IMAGEN_MODEL || 'imagen-4.0-generate-001';
+    const modelId = constants.IMAGEN_MODEL || 'imagen-3.0-generate-001';
 
     const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const client = await auth.getClient();
@@ -524,7 +524,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       parameters: {
         sampleCount: 1,
         aspectRatio: "1:1",
-        sampleImageSize: "2K"
+        sampleImageSize: "1K"
       }
     };
     const predictRes = await fetch(predictUrl, {
@@ -546,9 +546,9 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
     // --- Step 4: Create Watermark and Composite Image ---
     const imageBuffer = Buffer.from(imageDataBase64, 'base64');
     const watermarkSvg = `
-      <svg width="2048" height="100">
+      <svg width="1024" height="50">
         <text x="50%" y="85%" text-anchor="middle"
-        font-family="IBM Plex Mono, monospace" font-size="40" fill="rgba(255, 153, 51, 0.71)">
+        font-family="IBM Plex Mono, monospace" font-size="20" fill="rgba(255, 153, 51, 0.71)">
         ${chapterTitle} - sntnz.com
         </text>
       </svg>
