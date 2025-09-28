@@ -128,7 +128,7 @@ async function regenerateChapterImages(chapterNumbers = [], useProductionBucket 
 
   // --- REGENERATE IMAGES FOR SPECIFIC CHAPTERS ---
   // Provide a list of chapter numbers you want to process.
-  const chaptersToRegenerate = [23, 24];
+  const chaptersToRegenerate = [47];
   const useProductionBucket = true;
   const postOnSocials = true;
 

@@ -54,6 +54,12 @@ function initSocial() {
   logger.info('[social] Social media clients initialized.');
 }
 
+/**
+ * A simple promise-based delay helper.
+ * @param {number} ms - The number of milliseconds to wait.
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // ============================================================================
 // --- POSTING MAIN FUNCTIONS ---
 // ============================================================================
@@ -137,7 +143,7 @@ async function postToInstagram(fullText, shareableUrl, imageUrl) {
       constants.IG_MAX_CHARS
     );
 
-    // --- 3. Post to Instagram (2-Step Process) ---
+    // --- 3. Post to Instagram (Now a 3-Step Process) ---
     logger.info('[social] Starting post to Instagram...');
 
     // Step 3a: Create the media container.
@@ -148,7 +154,35 @@ async function postToInstagram(fullText, shareableUrl, imageUrl) {
     const creationId = createResponse?.id;
     if (!creationId) throw new Error('IG API: No creation_id was returned.');
 
-    // Step 3b: Publish the container.
+    // Step 3b: NEW - Poll for container status.
+    let isReady = false;
+    const maxRetries = 30;
+    for (let i = 0; i < maxRetries; i++) {
+        const statusResponse = await graphGet(
+            `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${creationId}`,
+            { fields: 'status_code', access_token: accessToken }
+        );
+        const status = statusResponse?.status_code;
+        logger.info(`[social] IG media container status check #${i + 1}: ${status}`);
+
+        if (status === 'FINISHED') {
+            isReady = true;
+            break; // Exit the loop, we are ready to publish.
+        }
+        if (status === 'ERROR') {
+            throw new Error('IG API: Media container processing failed.');
+        }
+        await sleep(2000); // Wait 2 seconds before checking again.
+    }
+
+    if (!isReady) {
+        throw new Error(`IG API: Media was not ready after ${maxRetries} attempts.`);
+    }
+
+    // MODIFICATION: Added a short, final delay for safety.
+    await sleep(1500);
+
+    // Step 3c: Publish the container.
     const publishResponse = await graphPost(
       `https://graph.facebook.com/${constants.FB_GRAPH_VERSION}/${igUserId}/media_publish`,
       { creation_id: creationId, access_token: accessToken }

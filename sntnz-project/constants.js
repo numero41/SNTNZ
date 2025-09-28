@@ -126,17 +126,17 @@ module.exports = {
       ]
     },
     {
-      "name": "Lyrical Romance",
-      "description": "Emotive style on feelings and sensory details with figurative language.",
+      "name": "Pastoral Fantasy",
+      "description": "A gentle, wondrous style focused on the serene beauty of nature and the harmonious existence of fantastical creatures.",
       "enforce": [
-        "focus on emotion",
-        "rich sensory details",
-        "use of metaphor & simile",
-        "poetic sentence structure",
-        "themes of connection & beauty",
-        "intimate perspective",
-        "incorporates ethereal, symbolic creatures",
-        "resonant, dreamlike (oneiric) quality"
+        "serene and gentle tone",
+        "deep reverence for nature",
+        "lush, vibrant landscapes",
+        "themes of harmony and symbiosis",
+        "descriptive, sensory-rich prose",
+        "contemplative, peaceful pacing",
+        "features beautiful, benign, and wondrous creatures",
+        "serene, dreamlike (oneiric) atmosphere"
       ]
     },
     {
@@ -210,20 +210,6 @@ module.exports = {
       ]
     },
     {
-      "name": "Pulp Gothic Horror",
-      "description": "Visceral horror with monsters, dread, and melodramatic flair.",
-      "enforce": [
-        "lurid, sensational descriptions",
-        "suspenseful pacing",
-        "grotesque imagery",
-        "strong emotional reactions",
-        "classic horror settings",
-        "themes of death & fear",
-        "features grotesque, dreamlike creatures",
-        "potent, surreal, oneiric dread"
-      ]
-    },
-    {
       "name": "Comic Book Action",
       "description": "Fast, exaggerated, cinematic style with bold, kinetic action.",
       "enforce": [
@@ -249,6 +235,76 @@ module.exports = {
         "dread to transcendence tone",
         "showcases ethereal, surreal aliens",
         "gripping, dreamlike (oneiric), metaphorical"
+      ]
+    },
+    {
+      "name": "Modern Superhero Prose",
+      "description": "Cinematic, high-stakes style blending epic action with the hero's personal drama and moral conflicts.",
+      "enforce": [
+        "blend of epic scale and personal stakes",
+        "themes of power, identity, and responsibility",
+        "dynamic, cinematic action sequences",
+        "internal monologue about duty or doubt",
+        "shifts between high-octane pacing and quiet character moments",
+        "dialogue balances witty banter with moral debates",
+        "features cosmic, oneiric threats or reality-bending villains",
+        "surreal, high-concept, and powerfully allegorical"
+      ]
+    },
+    {
+      "name": "Vernian Sci-Fi Adventure",
+      "description": "An optimistic and formal 19th-century style focused on scientific wonder, meticulous explanations, and grand journeys.",
+      "enforce": [
+        "optimistic tone with a profound sense of wonder",
+        "formal, almost academic prose",
+        "detailed descriptions of fictional technology and natural phenomena",
+        "themes of exploration, discovery, and human ingenuity",
+        "protagonists are often gentlemen explorers or brilliant inventors",
+        "a spirit of adventure into the unknown",
+        "encounters with bizarre, oneiric deep-sea or subterranean life",
+        "the unknown is rendered in a detailed, dreamlike fashion"
+      ]
+    },
+    {
+      "name": "Grimdark Political Fantasy",
+      "description": "A gritty, cynical style focused on political intrigue, morally complex characters, and the brutal realities of power.",
+      "enforce": [
+        "gritty, cynical, and realistic tone",
+        "focus on political scheming, betrayal, and power struggles",
+        "morally ambiguous characters; no clear heroes or villains",
+        "sudden, consequential, and unsentimental violence",
+        "dialogue is a weapon for manipulation",
+        "a grounded world where magic is often rare, dangerous, or subtle",
+        "features rare, terrifying, and symbolic creatures",
+        "oneiric beasts are treated as grave omens or ancient evils"
+      ]
+    },
+    {
+      "name": "Sword & Sorcery",
+      "description": "A fast-paced, pulpy style focused on personal heroism, dangerous magic, and thrilling, visceral combat.",
+      "enforce": [
+        "focus on personal stakes: survival, fortune, or revenge",
+        "fast-paced, action-oriented narrative",
+        "a capable but often cynical or roguish protagonist",
+        "magic is mysterious, dangerous, and often corrupting",
+        "a dark and perilous ancient world",
+        "visceral, moment-to-moment descriptions of conflict",
+        "battles with monstrous, surreal beasts from forgotten ages",
+        "the tone is adventurous, dark, and dreamlike"
+      ]
+    },
+    {
+      "name": "Cyberpunk Dystopia",
+      "description": "A gritty, rebellious style set in a neon-drenched, high-tech future where humanity is cheap and technology is everything.",
+      "enforce": [
+        "a 'high tech, low life' ethos",
+        "themes of transhumanism, corporate control, and identity",
+        "dense urban setting with towering skyscrapers and grimy streets",
+        "heavy use of technobabble, street slang, and invented jargon",
+        "a cynical, anti-authoritarian tone",
+        "focus on cybernetics, artificial intelligence, and virtual reality",
+        "navigates a surreal, dreamlike digital world (the Net)",
+        "AI and digital consciousness are portrayed as oneiric, god-like entities"
       ]
     }
   ],

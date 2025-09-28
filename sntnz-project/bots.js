@@ -494,11 +494,12 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       }
 
       // --- Step 3: Manually construct the full prompt in code ---
-      finalPrompt = `An exhibition-quality POWERFUL fine art print, with many layers of intricate details.\n
+      finalPrompt = `A exhibition-quality POWERFUL fine art print, with many layers of intricate details and bright lights.\n
       Style: "${selectedStyle.name} (${selectedStyle.description})".\n
       Scene: "${sceneDescription}".\n\n
       CRITICAL INSTRUCTIONS:\n
-      YOU CAN DEVIATE FROM THE PROVIDED STYLE IN ORDER TO ADAPT TO THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      YOU CAN ADAPT THE STYLE IN ORDER TO BETTER FIT THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      THE IMAGE SHOULD BE FILLED WITH LIGHT, WITH A SENSE OF DEPTH AND DIMENSION.\n
       DO NOT INCLUDE TEXT, WORDS, AND REALISTIC HUMAN CHARACTERS\n`;
 
       logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
