@@ -498,8 +498,8 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       Style: "${selectedStyle.name} (${selectedStyle.description})".\n
       Scene: "${sceneDescription}".\n\n
       CRITICAL INSTRUCTIONS:\n
-      YOU CAN ADAPT THE STYLE IN ORDER TO BETTER FIT THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
-      THE IMAGE SHOULD BE FILLED WITH LIGHT, WITH A SENSE OF DEPTH AND DIMENSION.\n
+      YOU CAN SLIGHTLY ADAPT THE STYLE IN ORDER TO BETTER FIT THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      THE IMAGE SHOULD BE FILLED WITH BRIGHT LIGHT, WITH A SENSE OF DEPTH AND DIMENSION.\n
       DO NOT INCLUDE TEXT, WORDS, AND REALISTIC HUMAN CHARACTERS\n`;
 
       logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');

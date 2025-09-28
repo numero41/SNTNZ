@@ -306,6 +306,62 @@ module.exports = {
         "navigates a surreal, dreamlike digital world (the Net)",
         "AI and digital consciousness are portrayed as oneiric, god-like entities"
       ]
+    },
+    {
+      "name": "Winter Mythos",
+      "description": "Crystalline, luminous style evoking snowbound myths and radiant cold beauty.",
+      "enforce": [
+        "bright, crystalline imagery",
+        "icy, reflective landscapes",
+        "mythic tone of frost and auroras",
+        "themes of endurance and purity",
+        "shimmering snowbound settings",
+        "ethereal dreamlike (oneiric) atmosphere",
+        "creatures of frost, light, and ice",
+        "tone of clarity, brilliance, and transcendence"
+      ]
+    },
+    {
+      "name": "Solar Epic",
+      "description": "Radiant, sun-drenched prose celebrating blazing deserts and divine light.",
+      "enforce": [
+        "radiant, golden imagery",
+        "sunlit deserts and vast skies",
+        "themes of endurance, faith, and revelation",
+        "archaic, elevated vocabulary",
+        "heat, brilliance, and mirages",
+        "cosmic undertones of fire and life",
+        "surreal oneiric creatures of flame and light",
+        "epic, luminous tone of transcendence"
+      ]
+    },
+    {
+      "name": "Celestial Pastoral",
+      "description": "Gentle, luminous prose bathed in dawn light, fields, and blossoms.",
+      "enforce": [
+        "serene and luminous tone",
+        "sunrise and morning glow",
+        "pastoral fields, flowers, and orchards",
+        "themes of harmony and renewal",
+        "warm, sensory-rich descriptions",
+        "peaceful and contemplative pacing",
+        "benign, radiant, oneiric creatures",
+        "bright, dreamlike (oneiric) atmosphere"
+      ]
+    },
+    {
+      "name": "Heavenly Vision",
+      "description": "Transcendent, radiant style inspired by divine skies and ethereal realms.",
+      "enforce": [
+        "soaring, celestial imagery",
+        "light-filled clouds and radiant heavens",
+        "themes of divinity and revelation",
+        "ritual, elevated vocabulary",
+        "timeless and allegorical atmosphere",
+        "ethereal creatures of light and air",
+        "powerfully dreamlike, radiant tone",
+        "imagery of dawn, ascension, and purity"
+      ]
     }
   ],
 
@@ -410,6 +466,10 @@ module.exports = {
     {
       "name": "Dreamlike Aquarelle",
       "description": "Soft, ethereal and highly detailed imagery rendered in watercolor."
+    },
+    {
+      "name": "High-Key Minimalism",
+      "description": "Bright, airy compositions dominated by luminous whites and pale colors. Soft shadows and glowing highlights."
     }
   ]
 };
