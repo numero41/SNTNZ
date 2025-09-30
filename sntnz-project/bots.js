@@ -107,6 +107,41 @@ function pushBotContext(word, botContext) {
   return botContext;
 }
 
+/**
+ * @summary A robust retry mechanism for promise-based functions.
+ * @description Wraps an async function (like an API call) and retries it upon
+ * failure with an exponentially increasing delay. This is crucial for handling
+ * transient 500-level server errors or network failures from external APIs.
+ * @param {Function} fn - The async function to execute.
+ * @param {number} [maxRetries=3] - The maximum number of attempts.
+ * @param {number} [initialDelay=1500] - The base delay in ms for the first retry.
+ * @returns {Promise<any>} The result of the successful function execution.
+ * @throws Will re-throw the error if all attempts fail.
+ */
+async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1500) {
+  let attempt = 1;
+  while (attempt <= maxRetries) {
+    try {
+      return await fn(); // Attempt the operation
+    } catch (err) {
+      // Determine if the error is a transient, retryable one.
+      const isServerError = err.message && err.message.includes('500 Internal Server Error');
+      const isFetchError = err.message && err.message.includes('fetch failed');
+
+      if ((isServerError || isFetchError) && attempt < maxRetries) {
+        // Calculate delay with exponential backoff and random jitter
+        const delay = initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+        logger.warn({ attempt, maxRetries, error: err.message }, `[retry] API call failed. Retrying in ${Math.round(delay / 1000)}s...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        attempt++;
+      } else {
+        // If it's not a retryable error or we've exhausted all retries, throw
+        logger.error({ attempt, err }, `[retry] Final attempt failed. Giving up.`);
+        throw err;
+      }
+    }
+  }
+}
 // ============================================================================
 // --- GEMINI TEXT GENERATION ---
 // ============================================================================
@@ -161,10 +196,10 @@ async function generateNewTitle(totalChapterCount, recentTitles = [], currentWri
         Output ONLY the title text, without any quotes or prefixes.
       `.trim();
 
-      const titleResult = await withTimeout(textModelLite.generateContent({
+      const titleResult = await retryWithBackoff(() => withTimeout(textModelLite.generateContent({
           contents: [{ role: "user", parts: [{ text: titlePrompt }] }],
           generationConfig: { maxOutputTokens: 64, temperature: 0.6 },
-      }));
+      })));
       const candidateTitle = (titleResult?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/["“”]/g, '');
 
       // Check if the generated title is new and valid.
@@ -253,10 +288,10 @@ async function writeChapter({ isContinuing, targetWordCount, currentWritingStyle
     const AI_TIMEOUT_MS = Number(constants.AI_TIMEOUT_MS || 35000);
     const withTimeout = (p, ms = AI_TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
-    const result = await withTimeout(selectedModel.generateContent({
+    const result = await retryWithBackoff(() => withTimeout(selectedModel.generateContent({
         contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
         generationConfig: { maxOutputTokens: 4096, temperature: 0.6, topP: 0.9 },
-    }));
+    })));
     const generatedText = (result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 
     if (generatedText) {
@@ -472,7 +507,7 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
         Read the following story excerpt and synthesize its essence into a short scene description.
 
         - Omit dialogue and character names.
-        - Focus on: lighting, creatures, objects, atmospheric effects, and light.
+        - Focus on: lighting, creatures, objects, atmospheric effects, and surreal scenary.
 
         - CRITICAL: The total output MUST NOT exceed 180 words.
 
@@ -482,10 +517,10 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
         """
       `.trim();
 
-      const result = await textModelPro.generateContent({
+      const result = await retryWithBackoff(() => textModelPro.generateContent({
         contents: [{ role: "user", parts: [{ text: sceneGenPrompt }] }],
         generationConfig: { maxOutputTokens: 4096, temperature: 0.6 },
-      });
+      }));
 
       const sceneDescription = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
 
@@ -494,12 +529,12 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
       }
 
       // --- Step 3: Manually construct the full prompt in code ---
-      finalPrompt = `A exhibition-quality POWERFUL fine art print, with many layers of intricate details and bright lights.\n
+      finalPrompt = `An exhibition-quality very original and POWERFUL design art.\n
       Style: "${selectedStyle.name} (${selectedStyle.description})".\n
       Scene: "${sceneDescription}".\n\n
       CRITICAL INSTRUCTIONS:\n
-      YOU CAN SLIGHTLY ADAPT THE STYLE IN ORDER TO BETTER FIT THE SCENE, BUT YOU SHOULD AVOID PHOTOREALISTIC, CGI OR 3D RENDER.\n
-      THE IMAGE SHOULD BE FILLED WITH BRIGHT LIGHT, WITH A SENSE OF DEPTH AND DIMENSION.\n
+      ADAPT THE STYLE IN ORDER TO BETTER FIT THE SCENE. PREFER DESIGN, ABSTRACT, SURREAL, WHILE AVOIDING PHOTOREALISTIC, CGI OR 3D RENDER.\n
+      THE IMAGE SHOULD BE FILLED WITH LIGHT, WITH A SENSE OF DEPTH AND LAYERS OF INTRICATE DETAILS.\n
       DO NOT INCLUDE TEXT, WORDS, AND REALISTIC HUMAN CHARACTERS\n`;
 
       logger.info({ finalPrompt }, '[image] Final Imagen prompt prepared.');
@@ -528,11 +563,11 @@ async function generateAndUploadImage(text, chapterTitle, chapterHash, isProduct
         sampleImageSize: "1K"
       }
     };
-    const predictRes = await fetch(predictUrl, {
+    const predictRes = await retryWithBackoff(() => fetch(predictUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(predictBody)
-    });
+    }));
 
     if (!predictRes.ok) {
       throw new Error(`[Imagen:predict] ${predictRes.status} ${await predictRes.text()}`);
